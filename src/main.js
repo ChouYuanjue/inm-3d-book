@@ -1,4 +1,7 @@
 import './styles.css';
+import './upgrades.css';
+import { initBookOutline } from './toc.js';
+import { createPageInspector } from './inspector.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
@@ -16,7 +19,7 @@ const state={
   pages:SOURCE_PAGES, sourcePages:SOURCE_PAGES, caliper:.10,
   format:'a4', binding:'hardcover',
   title:'Informal Notes on Mathematics', author:'Runnel Zhang', ink:'#07508a',
-  open:false, spread:0, isMoving:false, flip:null,
+  open:false, spread:0, currentPage:1, isMoving:false, flip:null,
   coverProgress:0, coverTarget:0, coverUpload:null
 };
 let pdfDoc=null,pdfPromise=null,pdfSource=null;
@@ -62,6 +65,7 @@ let parts=null,geometryParams=null;
 let coverTexture,spineTexture,backTexture,edgeTexture,placeholderTexture;
 let frontMaterial,spineMaterial,backMaterial,insideMaterial,clothMaterial,edgeMaterial;
 let motion=null,cameraMotion=null;
+let inspector=null;
 const up=new THREE.Vector3(0,0,0);
 const clock=new THREE.Clock();
 const tmpColor=new THREE.Color();
@@ -158,11 +162,15 @@ function showPages(open){
   parts.rightPage.visible=open;
   parts.leftPage.visible=open&&state.spread>0;
   parts.leftStack.visible=open&&state.spread>0;
+  $('readerNavigation').hidden=!open;
+  $('sceneWrap').classList.toggle('is-reading',open);
 }
 function setStacks(){
   if(!parts)return;
   const d=geometryParams, t=d.t;
-  const moved=Math.min(state.pages,Math.max(0,state.spread*2));
+  // The printed-page count is an independent mockup setting. When it differs
+  // from the PDF's length, page block motion follows the relative reading position.
+  const moved=Math.min(state.pages,Math.max(0,state.pages*(state.spread*2)/Math.max(1,state.sourcePages)));
   const leftThick=Math.max(.002,t*moved/state.pages);
   const rightThick=Math.max(.002,t*(1-moved/state.pages));
   parts.rightStack.scale.z=state.open?rightThick:t;
@@ -194,6 +202,10 @@ function updateStats(){
     $('counterLabel').textContent='READING THE MANUSCRIPT';
     $('pageIndicator').textContent=(left>0?mmWord(left)+'–':'')+mmWord(Math.min(right,state.sourcePages))+' / '+mmWord(state.sourcePages);
   }
+  $('readerPosition').max=state.sourcePages;
+  $('readerPageInput').max=state.sourcePages;
+  $('readerPosition').value=state.currentPage;
+  if(document.activeElement!==$('readerPageInput'))$('readerPageInput').value=state.currentPage;
   $('prevPage').disabled=!state.open||state.isMoving||state.spread<=0;
   $('nextPage').disabled=state.isMoving||(state.open&&state.spread*2+1>=state.sourcePages);
 }
@@ -274,9 +286,10 @@ function pageTexture(number){
   }
   return promise;
 }
-async function setSpread(index){
+async function setSpread(index,requestedPage=null){
   if(!parts)return;
   state.spread=Math.min(Math.max(0,index),Math.ceil(state.sourcePages/2)-1);
+  state.currentPage=requestedPage===null?Math.min(state.sourcePages,state.spread*2+1):Math.min(state.sourcePages,Math.max(1,Math.floor(requestedPage)));
   const ticket=++renderToken;
   setStacks();showPages(state.open);updateStats();
   if(!state.open)return;
@@ -297,10 +310,10 @@ function setCover(open){
   state.open=open;state.isMoving=true;
   state.coverTarget=open?1:0;
   state.spread=open?state.spread:0;
-  if(!open){showPages(false);state.spread=0;}
+  if(!open){showPages(false);state.spread=0;state.currentPage=1;}
   motion={kind:'cover',from:state.coverProgress,to:state.coverTarget,start:performance.now(),duration:850};
   $('openBook').innerHTML=open?'Close the book <span>×</span>':'Open the book <span>↗</span>';
-  if(open){setSpread(state.spread);focusView('front');}
+  if(open){setSpread(state.spread);focusView('read');}
   else {updateStats();focusView('front');}
 }
 function removeFlip(){
@@ -401,6 +414,8 @@ function focusView(view){
   const smallScreen=host.clientWidth<520;
   if(view==='spine'){
     destination=state.open?new THREE.Vector3(-d.w*2.2,1.2,6.4):new THREE.Vector3(-5.2,1.2,5.0);
+  } else if(view==='read') {
+    destination=state.open?new THREE.Vector3(-d.w*.50,4.7,6.65):new THREE.Vector3(-2.6,3.25,7.3);
   } else if(view==='pages') {
     destination=state.open?new THREE.Vector3(-d.w*.45,3.15,7.7):new THREE.Vector3(3.7,3.7,5.8);
   } else {
@@ -426,6 +441,33 @@ function setPageCount(value){
   printUpdate();
 }
 function resetToSource(){setPageCount(state.sourcePages);}
+// A PDF page always belongs to one physical two-page spread. Page 1 is the
+// right-hand recto; page 2 is the first left-hand verso.
+function navigateToPage(page,{fromInspector=false}={}){
+  const n=Math.min(state.sourcePages,Math.max(1,Math.floor(Number(page)||1)));
+  if(state.flip)removeFlip();
+  motion=null;
+  state.isMoving=false;
+  if(!state.open){
+    state.open=true;
+    state.coverProgress=1;
+    state.coverTarget=1;
+    $('openBook').innerHTML='Close the book <span>×</span>';
+    const d=geometryParams||dims();
+    parts.frontPivot.rotation.y=-Math.PI;
+    parts.frontPivot.position.z=d.t/2+d.board/2-(d.t+d.board);
+  }
+  setSpread(Math.floor(n/2),n);
+  showPages(true);
+  focusView('read');
+  history.replaceState(null,'','#p='+n);
+  if(window.matchMedia('(max-width: 760px)').matches){
+    $('sidebar').classList.remove('mobile-open');
+    $('toggleSettings').innerHTML='Print settings <span>⌄</span>';
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  return n;
+}
 function chooseCoverFromBlob(file){
   if(!file)return;
   const load=async()=>{
@@ -481,7 +523,8 @@ function bindUI(){
     try{
       pdfSource=file;await loadPdf({data:new Uint8Array(await file.arrayBuffer())});
       setPageCount(state.sourcePages);
-      state.spread=0;if(state.open)setSpread(0);
+      state.spread=0;state.currentPage=1;if(state.open)setSpread(0);
+      $('outlineCount').textContent='The index below describes the original INM PDF.';
       showLoading('Loaded your own PDF — '+mmWord(state.sourcePages)+' pages.',true);
     }catch(err){console.error(err);}
   });
@@ -492,16 +535,26 @@ function bindUI(){
   $('viewFront').addEventListener('click',()=>focusView('front'));
   $('viewSpine').addEventListener('click',()=>focusView('spine'));
   $('viewPages').addEventListener('click',()=>focusView('pages'));
+  $('viewRead').addEventListener('click',()=>{if(!state.open)setCover(true);else focusView('read');});
+  $('readerPosition').addEventListener('input',ev=>{$('readerPageInput').value=ev.target.value;});
+  $('readerPosition').addEventListener('change',ev=>navigateToPage(ev.target.value));
+  $('readerPageInput').addEventListener('change',ev=>navigateToPage(ev.target.value));
+  $('readerPageInput').addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();navigateToPage(ev.target.value);ev.target.blur();}});
+  $('readerGo').addEventListener('click',()=>navigateToPage($('readerPageInput').value));
+  $('inspectorOpen').addEventListener('click',()=>inspector?.open(state.currentPage));
   $('toggleSettings').addEventListener('click',()=>{
     const el=$('sidebar'),opened=el.classList.toggle('mobile-open');
     $('toggleSettings').innerHTML=opened?'Hide print settings <span>⌃</span>':'Print settings <span>⌄</span>';
     if(opened)setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),110);
   });
   document.addEventListener('keydown',e=>{
+    if(inspector?.visible())return;
     if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;
     if(e.key==='ArrowRight')flipPage(1);
     if(e.key==='ArrowLeft')flipPage(-1);
     if(e.key==='Escape'&&state.open)setCover(false);
+    if(e.key==='Home')navigateToPage(1);
+    if(e.key==='End')navigateToPage(state.sourcePages);
     if(e.key===' '){e.preventDefault();setCover(!state.open);}
   });
   let mouseStart=null;
@@ -534,12 +587,23 @@ function bindUI(){
 }
 rebuildBook();
 bindUI();
+inspector=createPageInspector({
+  getDocument:ensurePdf,
+  getPageCount:()=>state.sourcePages,
+  onNavigate:navigateToPage
+});
+initBookOutline({baseUrl:import.meta.env.BASE_URL,onJump:navigateToPage});
 updateStats();
 requestAnimationFrame(animate);
-setTimeout(()=>ensurePdf().catch(()=>{}),600);
+setTimeout(()=>{
+  ensurePdf().then(()=>{
+    const match=location.hash.match(/^#p=(\d+)$/);
+    if(match)navigateToPage(Number(match[1]));
+  }).catch(()=>{});
+},600);
 window.__INM_DEBUG__={
   state, dims, scene, renderer,
   open:()=>setCover(true),close:()=>setCover(false),
   next:()=>flipPage(1),previous:()=>flipPage(-1),
-  setPageCount,focusView,pdf:()=>pdfDoc
+  setPageCount,focusView,jump:navigateToPage,inspect:(n)=>inspector.open(n),pdf:()=>pdfDoc
 };

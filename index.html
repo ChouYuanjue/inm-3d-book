@@ -48,6 +48,12 @@
           <div class="section-heading"><span>READING COPY</span><span class="fine-divider"></span></div>
           <p class="microcopy">The actual compiled INM manuscript is included. Pages are rendered only as you turn them.</p>
           <div class="upload-row pdf-row"><label class="upload-btn" for="pdfUpload">↑ <span>Load another PDF</span></label><input id="pdfUpload" type="file" accept="application/pdf" hidden/><span id="pdfState" class="pdf-state">1,248-page source</span></div>
+          <div class="section-heading"><span>EXPLORE THE MANUSCRIPT</span><span class="fine-divider"></span></div>
+          <p class="microcopy">Browse the actual PDF outline. Every destination opens inside this single continuous book.</p>
+          <label class="visually-hidden" for="sectionSearch">Search manuscript section titles</label>
+          <input class="section-search" id="sectionSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Search chapters, notes, concepts…" />
+          <div class="outline-count" id="outlineCount" aria-live="polite">Loading manuscript outline…</div>
+          <div class="outline-results" id="sectionResults" aria-label="PDF contents"></div>
         </div>
         <div class="sidebar-footer"><span>INM / PHYSICAL STUDIES</span><span>AN INDEPENDENT PREVIEW</span></div>
       </aside>
@@ -55,9 +61,16 @@
         <div class="scene-wrap" id="sceneWrap">
           <div class="scene-backdrop" aria-hidden="true"></div>
           <div class="scene-upper-left"><span class="scene-count">FIG. 001 — ANATOMY OF A BOOK</span><strong id="sceneTitle">Informal Notes on Mathematics</strong><span id="sceneMeta">A4 / HARDCOVER / 1,248 PAGES</span></div>
-          <div class="scene-upper-right"><button id="viewFront" class="view-button active" type="button" title="Front view">FRONT</button><button id="viewSpine" class="view-button" type="button" title="Spine view">SPINE</button><button id="viewPages" class="view-button" type="button" title="Pages view">PAGES</button></div>
+          <div class="scene-upper-right"><button id="viewFront" class="view-button active" type="button" title="Front view">FRONT</button><button id="viewSpine" class="view-button" type="button" title="Spine view">SPINE</button><button id="viewPages" class="view-button" type="button" title="Top view">TOP</button><button id="viewRead" class="view-button" type="button" title="Reading spread">READ</button></div>
           <div id="canvasHost" aria-label="Interactive 3D model of a hardcover book"></div>
           <div class="scene-drag-note"><span class="orbit-icon">◎</span> DRAG TO ORBIT <span class="small-sep">/</span> SCROLL TO ZOOM</div>
+          <div class="reader-navigation" id="readerNavigation" hidden>
+            <span class="reader-nav-caption">PAGE</span>
+            <input type="range" id="readerPosition" class="reader-position" aria-label="Jump through the manuscript" min="1" max="1248" value="1" step="1" />
+            <input type="number" id="readerPageInput" class="reader-page-input" aria-label="Page number" min="1" max="1248" value="1" step="1" />
+            <button id="readerGo" class="reader-nav-go" type="button">GO</button>
+            <button id="inspectorOpen" class="reader-inspect-btn" type="button">↗ <span>READ PAGE</span></button>
+          </div>
           <div class="reader-controls">
             <button id="prevPage" class="arrow-btn" aria-label="Turn backward" type="button">←</button>
             <button id="openBook" class="primary-reader-btn" type="button">Open the book <span>↗</span></button>
@@ -69,6 +82,24 @@
         </div>
         <div class="main-footer"><span><span class="fine-dot"></span> <strong>PHYSICAL SCALE</strong> <span id="scaleDetails">A4 · 210 × 297 mm · 62.4 mm book block</span></span><span>MADE FOR THE PAGE, MEASURED IN PAPER.</span></div>
       </main>
+    </div>
+  </div>
+  <div class="inspector" id="inspector" role="dialog" aria-modal="true" aria-labelledby="inspectorTitle" hidden>
+    <div class="inspector-frame">
+      <div class="inspector-header">
+        <div class="inspector-heading"><span class="inspector-kicker">THE MANUSCRIPT</span><strong id="inspectorTitle">Informal Notes on Mathematics</strong></div>
+        <span class="inspector-status" id="inspectorStatus" aria-live="polite"></span>
+        <button type="button" id="inspectorClose" class="inspector-close" aria-label="Close reading view">×</button>
+      </div>
+      <div id="inspectorScroll" class="inspector-scroll"><canvas id="inspectorCanvas" aria-label="High resolution PDF page"></canvas></div>
+      <div class="inspector-footer">
+        <button type="button" id="inspectorPrev" class="inspector-turn" aria-label="Previous PDF page">←</button>
+        <label for="inspectorPage">PAGE</label>
+        <input id="inspectorPage" type="number" min="1" max="1248" value="1"/>
+        <span id="inspectorTotal">/ 1,248</span>
+        <button type="button" id="inspectorNext" class="inspector-turn" aria-label="Next PDF page">→</button>
+        <div class="inspector-zoom"><button type="button" id="inspectorZoomOut" aria-label="Zoom out">−</button><span id="inspectorZoomLabel">100%</span><button type="button" id="inspectorZoomIn" aria-label="Zoom in">+</button></div>
+      </div>
     </div>
   </div>
   <script type="module" src="/src/main.js"></script>

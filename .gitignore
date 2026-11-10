@@ -6,3 +6,5 @@ dist/
 qa_*.py
 qa-*.png
 small-qa-*.png
+view-qa-*.png
+__pycache__/

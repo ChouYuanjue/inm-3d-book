@@ -1,25 +1,47 @@
-# INM — Physical Book Studio
+# INM — The Physical Book
 
-An independent, interactive 3D edition of **Informal Notes on Mathematics** by Runnel Zhang.
+An independent, browser-based, print-aware 3D rendering of a **single complete copy** of *Informal Notes on Mathematics*, by Runnel Zhang.
 
-- One complete book, defaulting to the **1,248-page** current `inm.pdf`.
-- Physically parameterized pages, paper caliper, hardcover/paperback and trim size.
-- Original clothbound ivory/blue cover artwork generated in Canvas 2D from the supplied visual reference; no generative image model involved.
-- Free orbit, zoom, front/spine/page preset viewpoints.
-- Hinged cover and animated paper bending during page turns.
-- Real PDF pages rendered lazily with PDF.js, navigation, local PDF replacement.
-- Local image/PDF cover upload and client-side image export.
+**Live site:** https://chouyuanjue.github.io/inm-3d-book/
 
-## Setup
+The studio uses the current compiled **1,248-page PDF**, rather than splitting the document into separately bound volumes.
 
-```bash
+## What you can do
+
+- Rotate, orbit and zoom the 3D book with mouse or touch.
+- Open and close the ivory clothbound cover; turn pages with arrow controls, keyboard, or tapping a book page.
+- Browse all **1,645 PDF outline entries** and jump to any bookmark in this one continuous book.
+- Jump directly to a specific printed page or scrub through the manuscript.
+- Open the high-resolution reading inspector for mathematical notation; enlarge, navigate, and close without leaving the simulation.
+- Share a specific location using a deep link, such as `#p=947`.
+- Change simulated page count, trim size, paper caliper and binding; the 3D book block and visible left/right paper stacks update accordingly.
+- Customize the cover title, author, and blue ink; upload a replacement front-cover image or PDF.
+- Import a different reading-copy PDF locally, or download a PNG render of the physical book.
+
+The preloaded cover artwork is an original Canvas 2D reconstruction of the user's ivory-and-blue hardcover reference. It is neither a generative image output nor an AMS publication.
+
+## Development
+
+The entire app lives in **E:\\INM-3D-Book**. The original `E:\\INM-TeX` remains untouched.
+
+```powershell
 npm install
 npm run dev
 npm run build
 ```
 
-The source PDF is **copied** into `public/inm.pdf` and does not modify the original INM-TeX project. The dedicated GitHub repository hosts the static `docs/` build.
+To refresh the copied source PDF and the bookmark index:
 
-Paper thickness is a user-configurable caliper; nominal paper weight in gsm alone does not establish thickness. The default hardcover model estimates block thickness as `pages/2 * caliper` and includes approximate cover board dimensions. A printer's spine allowance may differ due to binding method and stock.
+```powershell
+Copy-Item E:\\INM-TeX\\inm.pdf public\\inm.pdf
+& E:\\anaconda3\\python.exe scripts\\extract_outline.py
+npm run build
+```
 
-The artwork is INM-specific and does not claim any association with the American Mathematical Society.
+The Vite static build is copied to `docs/`, with GitHub Pages configured for `main:/docs`. On machines where normal Git pushes fail, the standalone `scripts/publish.py` uses the GitHub Git Data API through the local authenticated `gh` CLI, reusing previously uploaded PDF blobs.
+
+## Physical assumptions
+
+The book-block thickness is `ceil(pages/2) × paper caliper` approximately; the visual model estimates cover board and overhang independently. Its default caliper is 0.10 mm, resulting in a 62.4 mm book block for 1,248 printed pages. Exact manufacturing requirements depend on actual stock, grain, swell, imposition, and binding. The simulation is a visual proof, not a printer-supplied cover template.
+
+To keep rendering smooth, only the active PDF pages and the animated turning leaf use separate geometries and textures. The remaining leaves are represented by aggregated page-block meshes with stratified paper edges.
