@@ -1,7 +1,9 @@
 import './styles.css';
 import './upgrades.css';
+import './binding-upgrades.css';
 import { initBookOutline } from './toc.js';
 import { createPageInspector } from './inspector.js';
+import { HardcoverMechanics, topProfile } from './binding.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
@@ -17,7 +19,7 @@ const FORMATS = {
 const SOURCE_PAGES=1248;
 const state={
   pages:SOURCE_PAGES, sourcePages:SOURCE_PAGES, caliper:.10,
-  format:'a4', binding:'hardcover',
+  format:'a4', binding:'hardcover', openAngle:154,
   title:'Informal Notes on Mathematics', author:'Runnel Zhang', ink:'#07508a',
   open:false, spread:0, currentPage:1, isMoving:false, flip:null,
   coverProgress:0, coverTarget:0, coverUpload:null
@@ -40,7 +42,7 @@ renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 host.appendChild(renderer.domElement);
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true;controls.dampingFactor=.055;
-controls.enablePan=false;controls.minDistance=3.3;controls.maxDistance=15;
+controls.enablePan=false;controls.minDistance=3.3;controls.maxDistance=35;
 controls.maxPolarAngle=Math.PI*.91;
 controls.minPolarAngle=Math.PI*.11;
 camera.position.set(-3.15,1.38,7.85);
@@ -61,7 +63,7 @@ const floor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.ShadowMate
 floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;floor.position.y=-1.94;scene.add(floor);
 
 const bookRoot=new THREE.Group();scene.add(bookRoot);
-let parts=null,geometryParams=null;
+let parts=null,geometryParams=null,bookMechanics=null;
 let coverTexture,spineTexture,backTexture,edgeTexture,placeholderTexture;
 let frontMaterial,spineMaterial,backMaterial,insideMaterial,clothMaterial,edgeMaterial;
 let motion=null,cameraMotion=null;
@@ -104,82 +106,46 @@ function materialSet(top,other,back) {
   return [other,other,other,other,top,back||other];
 }
 function mmWord(n){return n.toLocaleString('en-US');}
-function disposeGeom(group) {
-  group.traverse(obj=>{if(obj.geometry)obj.geometry.dispose();if(obj.userData&&obj.userData.ownedMaterial&&obj.material)obj.material.dispose();});
-  group.clear();
-}
 function rebuildBook(){
   if(state.flip){removeFlip();state.isMoving=false;}
-  disposeGeom(bookRoot);
+  if(bookMechanics)bookMechanics.dispose();
   const d=dims();geometryParams=d;
-  const {w,h,t,board,overhang}=d;
-  const upper=t/2,lower=-t/2;
-  const pageEdgeMats=[edgeMaterial,edgeMaterial,edgeMaterial,edgeMaterial,insideMaterial,insideMaterial];
-  const rightStack=new THREE.Mesh(new THREE.BoxGeometry(w-.068,h-.07,1),pageEdgeMats);
-  rightStack.position.set(.024,0,0);rightStack.castShadow=true;rightStack.receiveShadow=true;bookRoot.add(rightStack);
-  const leftStack=new THREE.Mesh(new THREE.BoxGeometry(w-.068,h-.07,1),pageEdgeMats);
-  leftStack.position.x=-w+.024;leftStack.castShadow=true;leftStack.receiveShadow=true;
-  leftStack.visible=false;bookRoot.add(leftStack);
-
-  const backCover=new THREE.Mesh(
-    new THREE.BoxGeometry(w+overhang*2,h+overhang*2,board),
-    materialSet(clothMaterial,clothMaterial,backMaterial));
-  backCover.position.z=lower-board/2-.012;backCover.castShadow=true;backCover.receiveShadow=true;bookRoot.add(backCover);
-
-  const spine=new THREE.Mesh(
-    new THREE.BoxGeometry(Math.max(.04,board*1.35),h+overhang*2,t+board*2+.02),
-    [clothMaterial,spineMaterial,clothMaterial,clothMaterial,clothMaterial,clothMaterial]);
-  spine.position.set(-w/2-Math.max(.04,board*1.35)*.45,0,-.005);
-  spine.castShadow=true;spine.receiveShadow=true;bookRoot.add(spine);
-
-  const frontPivot=new THREE.Group();
-  frontPivot.position.set(-w/2,0,upper+board/2+.01);
-  const frontCover=new THREE.Mesh(
-    new THREE.BoxGeometry(w+overhang*2,h+overhang*2,board),
-    materialSet(frontMaterial,clothMaterial,insideMaterial));
-  frontCover.position.x=w/2;
-  frontCover.castShadow=true;frontCover.receiveShadow=true;
-  frontPivot.add(frontCover);bookRoot.add(frontPivot);
-
-  const pagePlaneGeo=new THREE.PlaneGeometry(w-.11,h-.13,1,1);
-  const rightPage=new THREE.Mesh(pagePlaneGeo,new THREE.MeshStandardMaterial({map:placeholderTexture,roughness:1,side:THREE.DoubleSide,metalness:0}));
-  rightPage.position.x=.024;rightPage.position.z=upper+.019;
-  rightPage.visible=false;rightPage.receiveShadow=true;bookRoot.add(rightPage);
-  const leftPage=new THREE.Mesh(pagePlaneGeo.clone(),new THREE.MeshStandardMaterial({map:placeholderTexture,roughness:1,side:THREE.DoubleSide,metalness:0}));
-  leftPage.position.x=-w+.024;leftPage.position.z=upper+.019;leftPage.visible=false;bookRoot.add(leftPage);
-  rightPage.userData.ownedMaterial=true;leftPage.userData.ownedMaterial=true;
-  parts={rightStack,leftStack,backCover,spine,frontPivot,frontCover,rightPage,leftPage};
-  floor.position.y=-h/2-overhang-.018;
-  const openT=state.coverProgress;
-  frontPivot.rotation.y=-Math.PI*openT;
-  frontPivot.position.z=upper+(board/2)-openT*(t+board);
+  bookMechanics=new HardcoverMechanics({
+    root:bookRoot,
+    dimensions:d,
+    materials:{
+      cloth:clothMaterial,
+      front:frontMaterial,
+      back:backMaterial,
+      spine:spineTexture,
+      edge:edgeTexture,
+      placeholder:placeholderTexture
+    }
+  });
+  parts={
+    frontPivot:bookMechanics.frontPivot,
+    frontCover:bookMechanics.frontBoard,
+    backCover:bookMechanics.backBoard,
+    rightStack:bookMechanics.rightStack,
+    leftStack:bookMechanics.leftStack,
+    rightPage:bookMechanics.rightPage,
+    leftPage:bookMechanics.leftPage,
+    spine:bookMechanics.spine
+  };
+  floor.position.y=-d.h/2-d.overhang-.024;
   setStacks();
   showPages(state.open);
   updateStats();
 }
 function showPages(open){
   if(!parts)return;
-  parts.rightPage.visible=open;
-  parts.leftPage.visible=open&&state.spread>0;
-  parts.leftStack.visible=open&&state.spread>0;
+  bookMechanics.render(state.coverProgress,state.spread,state.sourcePages,state.pages,state.openAngle);
   $('readerNavigation').hidden=!open;
   $('sceneWrap').classList.toggle('is-reading',open);
 }
 function setStacks(){
-  if(!parts)return;
-  const d=geometryParams, t=d.t;
-  // The printed-page count is an independent mockup setting. When it differs
-  // from the PDF's length, page block motion follows the relative reading position.
-  const moved=Math.min(state.pages,Math.max(0,state.pages*(state.spread*2)/Math.max(1,state.sourcePages)));
-  const leftThick=Math.max(.002,t*moved/state.pages);
-  const rightThick=Math.max(.002,t*(1-moved/state.pages));
-  parts.rightStack.scale.z=state.open?rightThick:t;
-  parts.rightStack.position.z=state.open?(-t/2+rightThick/2):0;
-  parts.leftStack.scale.z=leftThick;
-  parts.leftStack.position.z=-t/2+leftThick/2;
-  parts.leftPage.position.z=-t/2+leftThick+.022;
-  parts.rightPage.position.z=state.open?(-t/2+rightThick+.022):(t/2+.022);
-  if(parts.spine)parts.spine.visible=true;
+  if(!bookMechanics)return;
+  bookMechanics.render(state.coverProgress,state.spread,state.sourcePages,state.pages,state.openAngle);
 }
 function updateStats(){
   const d=geometryParams||dims();
@@ -220,6 +186,10 @@ function applyCover() {
   frontMaterial.map=coverTexture;spineMaterial.map=spineTexture;backMaterial.map=backTexture;
   frontMaterial.needsUpdate=true;spineMaterial.needsUpdate=true;backMaterial.needsUpdate=true;
   if(state.coverUpload)frontMaterial.map=state.coverUpload;
+  if(bookMechanics){
+    bookMechanics.spine.material.map=spineTexture;
+    bookMechanics.spine.material.needsUpdate=true;
+  }
   updateStats();
 }
 function showLoading(message,short=false){
@@ -310,7 +280,7 @@ function setCover(open){
   state.open=open;state.isMoving=true;
   state.coverTarget=open?1:0;
   state.spread=open?state.spread:0;
-  if(!open){showPages(false);state.spread=0;state.currentPage=1;}
+  if(!open){state.spread=0;state.currentPage=1;showPages(false);}
   motion={kind:'cover',from:state.coverProgress,to:state.coverTarget,start:performance.now(),duration:850};
   $('openBook').innerHTML=open?'Close the book <span>×</span>':'Open the book <span>↗</span>';
   if(open){setSpread(state.spread);focusView('read');}
@@ -321,7 +291,7 @@ function removeFlip(){
   const f=state.flip;
   if(f.group.parent)f.group.parent.remove(f.group);
   f.geometry.dispose();
-  f.backMat.map.dispose();
+  if(f.backMat.map)f.backMat.map.dispose();
   f.frontMat.dispose();f.backMat.dispose();
   state.flip=null;
 }
@@ -332,35 +302,43 @@ async function flipPage(dir){
   if(next<0||next>=Math.ceil(state.sourcePages/2))return;
   state.isMoving=true;updateStats();
   const oldSpread=state.spread;
-  const leaf=dir>0?(oldSpread*2+1):(next*2+1);
-  showLoading('Turning page '+mmWord(leaf)+'…');
+  const frontNumber=dir>0?oldSpread*2+1:oldSpread*2;
+  const backNumber=dir>0?frontNumber+1:frontNumber-1;
+  const underNumber=dir>0?next*2+1:(next>0?next*2:0);
+  showLoading('Turning page '+mmWord(frontNumber)+'…');
   try{
     const [front,back,under]=await Promise.all([
-      pageTexture(leaf), pageTexture(leaf+1),
-      pageTexture(next*2+1)
+      pageTexture(frontNumber),pageTexture(backNumber),pageTexture(underNumber)
     ]);
     if(!state.isMoving||!state.open){state.isMoving=false;return;}
-    const d=geometryParams,{w,h}=d;
-    const geometry=new THREE.PlaneGeometry(w-.11,h-.13,34,12);
-    geometry.translate((w-.11)/2+.055,0,0);
+    const {w,h,t}=geometryParams;
+    const geometry=new THREE.PlaneGeometry(w-.135,h-.14,38,11);
+    geometry.translate(dir*w/2,0,0);
     const basePositions=Float32Array.from(geometry.attributes.position.array);
-    const backMap=back.clone();backMap.wrapS=THREE.RepeatWrapping;
-    backMap.repeat.x=-1;backMap.offset.x=1;backMap.needsUpdate=true;
-    const frontMat=new THREE.MeshStandardMaterial({map:front,roughness:1,side:THREE.FrontSide});
-    const backMat=new THREE.MeshStandardMaterial({map:backMap,roughness:1,side:THREE.BackSide});
+    const backMap=back.clone();
+    backMap.wrapS=THREE.RepeatWrapping;backMap.repeat.x=-1;backMap.offset.x=1;
+    backMap.needsUpdate=true;
+    const frontMat=new THREE.MeshStandardMaterial({map:front,roughness:1,metalness:0,side:THREE.FrontSide});
+    const backMat=new THREE.MeshStandardMaterial({map:backMap,roughness:1,metalness:0,side:THREE.BackSide});
     const flipFront=new THREE.Mesh(geometry,frontMat);
     const flipBack=new THREE.Mesh(geometry,backMat);
     flipFront.castShadow=true;flipFront.receiveShadow=true;
-    const group=new THREE.Group();
-    group.add(flipFront,flipBack);
-    const rightSurface=parts.rightPage.position.z;
-    const leftSurface=parts.leftPage.position.z;
-    group.position.set(-w/2,0,dir>0?rightSurface+.024:leftSurface+.024);
+    const group=new THREE.Group();group.add(flipFront,flipBack);
+    const previousTop=bookMechanics.getTop(dir>0?'right':'left',oldSpread,state.sourcePages);
+    const futureTop=bookMechanics.getTop(dir>0?'left':'right',next,state.sourcePages);
+    group.position.set(0,0,previousTop+.018);
     bookRoot.add(group);
     if(dir>0)setTextureOn(parts.rightPage,under);
-    const f={group,geometry,basePositions,frontMat,backMat,from:dir>0?0:-Math.PI,to:dir>0?-Math.PI:0,dir,start:performance.now(),duration:660};
-    state.flip=f;
-    showLoading('');
+    else setTextureOn(parts.leftPage,under);
+    const theta=THREE.MathUtils.degToRad((180-state.openAngle)/2);
+    const f={
+      group,geometry,basePositions,frontMat,backMat,from:dir>0?-theta:theta,
+      to:dir>0?-Math.PI+theta:Math.PI-theta,
+      fromTop:previousTop,toTop:futureTop,
+      thickness:dir>0?t*(1-oldSpread*2/state.sourcePages):t*(oldSpread*2/state.sourcePages),
+      dir,start:performance.now(),duration:760
+    };
+    state.flip=f;showLoading('');
   }catch(err){
     console.error('Page turn failed',err);
     showLoading('Could not render this page.',true);
@@ -373,9 +351,7 @@ function animate(time){
   if(motion){
     const k=Math.min(1,(time-motion.start)/motion.duration),v=ease(k);
     state.coverProgress=motion.from+(motion.to-motion.from)*v;
-    const d=geometryParams;
-    parts.frontPivot.rotation.y=-Math.PI*state.coverProgress;
-    parts.frontPivot.position.z=d.t/2+(d.board/2)-state.coverProgress*(d.t+d.board);
+    bookMechanics.render(state.coverProgress,state.spread,state.sourcePages,state.pages,state.openAngle);
     if(k>=1){
       const wasOpen=motion.to===1;
       motion=null;state.isMoving=false;showPages(wasOpen);
@@ -386,12 +362,18 @@ function animate(time){
     const f=state.flip;
     const k=Math.min(1,(time-f.start)/f.duration),v=ease(k);
     f.group.rotation.y=f.from+(f.to-f.from)*v;
-    const attr=f.geometry.attributes.position,pos=attr.array,old=f.basePositions,w=geometryParams.w;
-    for(let i=0;i<attr.count;i++){
-      const x=old[i*3],u=Math.min(1,Math.max(0,x/w));
-      pos[i*3+2]=Math.sin(u*Math.PI)*Math.sin(Math.PI*v)*.17 + (Math.sin(u*11+v*7)*.003*Math.sin(Math.PI*v));
+    f.group.position.z=f.fromTop+(f.toTop-f.fromTop)*v+.018;
+    const pos=f.geometry.attributes.position,base=f.basePositions,w=geometryParams.w;
+    for(let i=0;i<pos.count;i++){
+      const x=base[i*3],u=Math.min(1,Math.abs(x)/w);
+      // Folded sheets bend most at mid-turn. The binding end follows the book's
+      // actual top-of-gutter height and the outer edge gently curls.
+      const rest=f.thickness*(topProfile(u)-topProfile(0));
+      const curled=Math.sin(Math.PI*v)*(0.13+0.09*Math.min(1,geometryParams.t))
+        *Math.sin(Math.PI*u);
+      pos.setZ(i,rest+curled+Math.sin(u*10+v*7)*.003*Math.sin(Math.PI*v));
     }
-    attr.needsUpdate=true;f.geometry.computeVertexNormals();
+    pos.needsUpdate=true;f.geometry.computeVertexNormals();
     if(k>=1){
       const nextSpread=state.spread+f.dir;
       removeFlip();state.isMoving=false;setSpread(nextSpread);
@@ -409,30 +391,44 @@ function animate(time){
 function focusView(view){
   document.querySelectorAll('.view-button').forEach(x=>x.classList.toggle('active',x.id==='view'+view[0].toUpperCase()+view.slice(1)));
   const d=geometryParams||dims();
-  const target=state.open?new THREE.Vector3(-d.w*.48,.10,0):new THREE.Vector3(0,.05,0);
+  const opened=state.open;
+  const spreadFactor=(Math.max(105,Math.min(174,state.openAngle))-105)/69;
+  const lowestLocalZ=-d.t/2-d.board-.015-(d.t*.23+.038)*(1.20-.33*spreadFactor);
+  const worldRootY=-d.h/2-d.overhang-.02-lowestLocalZ;
+  const target=opened?new THREE.Vector3(0,worldRootY+.18,0):new THREE.Vector3(0,.05,0);
   let destination;
-  const smallScreen=host.clientWidth<520;
-  if(view==='spine'){
-    destination=state.open?new THREE.Vector3(-d.w*2.2,1.2,6.4):new THREE.Vector3(-5.2,1.2,5.0);
-  } else if(view==='read') {
-    destination=state.open?new THREE.Vector3(-d.w*.50,4.7,6.65):new THREE.Vector3(-2.6,3.25,7.3);
-  } else if(view==='pages') {
-    destination=state.open?new THREE.Vector3(-d.w*.45,3.15,7.7):new THREE.Vector3(3.7,3.7,5.8);
-  } else {
-    destination=state.open?new THREE.Vector3(-d.w*.50,1.3,8.9):new THREE.Vector3(-3.0,1.25,7.8);
+  if(!opened){
+    if(view==='spine')destination=new THREE.Vector3(-5.1,1.5,5.0);
+    else if(view==='pages')destination=new THREE.Vector3(3.6,3.4,6.0);
+    else destination=new THREE.Vector3(-3.0,1.35,7.7);
+  }else{
+    // Look toward the head of the book so the bowed case spine, shoulders,
+    // and two stacks are visible in cross-section rather than from overhead.
+    if(view==='spine')destination=new THREE.Vector3(-.3,worldRootY+.52,-6.75);
+    else if(view==='pages')destination=new THREE.Vector3(.2,worldRootY+8.5,2.0);
+    else if(view==='read')destination=new THREE.Vector3(-2.4,worldRootY+6.6,5.2);
+    else destination=new THREE.Vector3(-3.1,worldRootY+4.3,6.8);
   }
-  if(smallScreen){destination.multiplyScalar(1.40);}
+  const width=host.clientWidth,height=host.clientHeight;
+  if(width<760){
+    const direction=destination.clone().sub(target);
+    let minDist=opened?
+      ((2*d.w+1.2)/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*(width/height)))*1.12:
+      Math.max(9.8,d.h/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2))*.92);
+    direction.setLength(Math.max(direction.length(),minDist));
+    destination=target.clone().add(direction);
+  }
   cameraMotion={
     from:camera.position.clone(),to:destination,
     targetFrom:controls.target.clone(),targetTo:target,
-    start:performance.now(),duration:850
+    start:performance.now(),duration:900
   };
 }
 function printUpdate(){
   if(motion){motion=null;state.isMoving=false;}
   state.coverProgress=state.open?1:0;
   rebuildBook();
-  if(state.open)setSpread(state.spread);
+  if(state.open){setSpread(state.spread);focusView('read');}
 }
 function setPageCount(value){
   const n=Number(value);
@@ -453,9 +449,7 @@ function navigateToPage(page,{fromInspector=false}={}){
     state.coverProgress=1;
     state.coverTarget=1;
     $('openBook').innerHTML='Close the book <span>×</span>';
-    const d=geometryParams||dims();
-    parts.frontPivot.rotation.y=-Math.PI;
-    parts.frontPivot.position.z=d.t/2+d.board/2-(d.t+d.board);
+    bookMechanics.render(1,state.spread,state.sourcePages,state.pages,state.openAngle);
   }
   setSpread(Math.floor(n/2),n);
   showPages(true);
@@ -510,6 +504,7 @@ function bindUI(){
   $('format').addEventListener('change',ev=>{state.format=ev.target.value;printUpdate();});
   $('paper').addEventListener('change',ev=>{state.caliper=Number(ev.target.value);printUpdate();});
   $('binding').addEventListener('change',ev=>{state.binding=ev.target.value;printUpdate();});
+  $('openingAngle').addEventListener('input',ev=>{state.openAngle=Number(ev.target.value);$('angleLabel').textContent=state.openAngle+'°';setStacks();});
   $('coverTitle').addEventListener('input',ev=>{state.title=ev.target.value||'Informal Notes on Mathematics';applyCover();});
   $('coverAuthor').addEventListener('input',ev=>{state.author=ev.target.value||'Runnel Zhang';applyCover();});
   $('inkColor').addEventListener('input',ev=>{state.ink=ev.target.value;applyCover();});
@@ -570,7 +565,9 @@ function bindUI(){
     const hits=ray.intersectObjects(meshes.filter(x=>x.visible),false);
     if(!hits.length)return;
     if(!state.open){setCover(true);return;}
-    if(hits[0].point.x< -geometryParams.w/2-.14)flipPage(-1);else flipPage(1);
+    // After opening, the gutter is at world x=0. The previous threshold
+    // accidentally treated much of the left page as a right-hand page.
+    if(hits[0].point.x<0)flipPage(-1);else flipPage(1);
   });
   const resizeObserver=new ResizeObserver(()=>{
     const w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;

@@ -1,0 +1,6 @@
+.binding-angle-control{margin-top:17px;padding:11px 13px 6px;border:1px solid #d7dcd8;background:#f4f4ef}
+.binding-angle-control .field-row{margin-bottom:4px}
+.binding-angle-control .field-row strong{font-size:13px;color:#315b71;font-variant-numeric:tabular-nums}
+.binding-angle-control .range-control{margin:15px 0 0}
+.binding-angle-control .microcopy{font-size:10.5px;margin:7px 0 5px;line-height:1.5}
+@media(max-width:760px){.scene-drag-note{font-size:7.5px;letter-spacing:.6px}}

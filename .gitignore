@@ -7,4 +7,5 @@ qa_*.py
 qa-*.png
 small-qa-*.png
 view-qa-*.png
+look-qa-*.jpg
 __pycache__/
