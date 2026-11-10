@@ -1,0 +1,18 @@
+{
+  "name": "inm-physical-book",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build --base=/inm-3d-book/",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^5.4.449",
+    "three": "^0.181.0"
+  },
+  "devDependencies": {
+    "vite": "^7.2.2"
+  }
+}
