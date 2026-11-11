@@ -208,7 +208,7 @@ test('curled page has a finite, non-cusped inward shoulder',()=>{
 });
 
 
-test('near the first pages the heavy right block stays flat and the small left side curls',()=>{
+test('near the first pages the heavy block stays flat and the turned leaf rests almost straight',()=>{
   const start=new SignatureRig(dims,1248,1,1,120);
   const right=start.sheetPoint(1,'right',.5,.5);
   const outer=start.sheetPoint(1,'right',1,.5);
@@ -220,7 +220,7 @@ test('near the first pages the heavy right block stays flat and the small left s
   const root=start.sheetPoint(0,'left',0,.5);
   const free=start.sheetPoint(0,'left',1,.5);
   const linear=root.z+(free.z-root.z)*.2;
-  assert.ok(thin.z>linear+.10,'the first folded-over leaf curls inward');
+  assert.ok(Math.abs(thin.z-linear)<.025,'one turned leaf must remain nearly straight');
 });
 
 test('last pages mirror the first: heavy left stack is flat',()=>{
@@ -268,5 +268,35 @@ test('thin stack sits above the raised front or back board at early and late pag
     const board=rig.getBoardAnchor(side);
     const boardSurface=board.z+(dims.w-.018)*Math.sin(tilt);
     assert.ok(p.z>boardSurface+.005,'printed paper must not sink into the cover');
+  }
+});
+
+test('one to five turned leaves have only a shallow departure from their supporting plane',()=>{
+  for(const count of [1,2,3,5]){
+    for(const [spread,side] of [[count,'left'],[624-count,'right']]){
+      const rig=new SignatureRig(dims,1248,spread,1,120);
+      const idx=rig.visibleLeaf(side),a=rig.sheetPoint(idx,side,0,.5),b=rig.sheetPoint(idx,side,1,.5);
+      for(let k=1;k<20;k++){
+        const u=k/20,p=rig.sheetPoint(idx,side,u,.5);
+        assert.ok(Math.abs(p.z-(a.z+(b.z-a.z)*u))<.03,
+          'a handful of leaves must not form a large bulge: count='+count+' u='+u);
+      }
+    }
+  }
+});
+
+test('case spine stays convex to the exterior through opening at both ends and the middle',()=>{
+  for(const spread of [0,1,5,30,156,312,468,594,619,623,624]){
+    for(const q of [0,.1,.25,.5,.75,.9,1]){
+      const rig=new SignatureRig(dims,1248,spread,q,120);
+      const a=rig.spinePoint(0),b=rig.spinePoint(1);
+      const roll=Math.PI*rig.position*q,nx=-Math.cos(roll),nz=-Math.sin(roll);
+      for(const s of [.1,.25,.5,.75,.9]){
+        const p=rig.spinePoint(s);
+        const displacement=(p.x-(a.x+(b.x-a.x)*s))*nx+(p.z-(a.z+(b.z-a.z)*s))*nz;
+        assert.ok(displacement>.025,
+          'exterior case must bulge away from the book: spread='+spread+' q='+q+' s='+s);
+      }
+    }
   }
 });

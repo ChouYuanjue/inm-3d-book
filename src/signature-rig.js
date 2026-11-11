@@ -129,23 +129,18 @@ export class SignatureRig {
     return this.hingeAtFraction((sig+.5)*LEAVES_PER_SIGNATURE/this.total);
   }
   spinePoint(s){
-    const h=this.hingeAtFraction(s);
-    const shoulder=Math.sin(pi*s);
-    const engagement=this.spineEngagement*this.q;
-    // Transport the case's exterior normal along the same continuous
-    // roll as the gathering roots. Closed: -X; open middle: -Z;
-    // open at the last pages: +X. The cloth never switches inside/out.
+    s=clamp(s,0,1);
     const roll=pi*this.position*this.q;
     const normalX=-Math.cos(roll),normalZ=-Math.sin(roll);
-    const skin=.047+.013*shoulder;
-    const outwardGap=skin+engagement*(.015+.32*shoulder*shoulder);
-    // A small lateral shoulder flare keeps the exterior shell clear of
-    // the sewing roots, but leaves the two cover attachment ends fixed.
-    const phase=this.angularSpread*(s-this.position);
-    const flare=this.radius*.11*Math.sin(phase)*shoulder*engagement;
+    // The exterior case bridges its two attachment ends independently
+    // of the inward arch of the sewn paper. Transport its convex belly
+    // with the case as the book rolls, including the final few leaves.
+    const left=this.hingeAtFraction(0),right=this.hingeAtFraction(1);
+    const belly=(this.d.t*(.16+.10*this.spineEngagement*this.q)+.013)*Math.sin(pi*s);
+    const offset=.047+belly;
     return {
-      x:h.x+normalX*outwardGap+flare,
-      z:h.z+normalZ*outwardGap
+      x:lerp(left.x,right.x,s)+normalX*offset,
+      z:lerp(left.z,right.z,s)+normalZ*offset
     };
   }
   /** x,y,z surface location for a *physical* sheet, in book coordinates. */
@@ -162,20 +157,36 @@ export class SignatureRig {
     // signature's own leaf-stack thickness preserved. The previous sign
     // error dropped the outer edge and fabricated knife-shaped wedges.
     const boardSupport=side==='left'?this.leftSupportOffset:this.rightSupportOffset;
-    const openForeZ=-t/2+layer*this.caliper+rising+boardSupport;
+    let openRootZ=p.openZ;
+    let openForeZ=-t/2+layer*this.caliper+rising+boardSupport;
     const closedForeZ=t/2-(idx+.5)*this.caliper;
     const closedX=lerp(p.closedX,w-.018,U);
     // Page width is projected into the V of its supporting cover.
     // Previously the cover rotated but the paper extended horizontally
     // at FULL width, so the board cut THROUGH the page near its center.
     const projection=Math.cos(side==='left'?this.leftTilt:this.rightTilt);
-    const openX=lerp(p.openX,(side==='left'?-1:1)*(w-.018)*projection,U);
+    const sign=side==='left'?-1:1;
+    const foreX=sign*(w-.018)*projection;
+    const openX=lerp(p.openX,foreX,U);
+    const stackLeaves=side==='left'?this.split:this.total-this.split;
+    if(stackLeaves<64){
+      // A nearly straight thin pile must rest ON its tilted board.
+      const anchor=this.getBoardAnchor(side);
+      const tilt=side==='left'?this.leftTilt:this.rightTilt;
+      const planeZ=x=>anchor.z+sign*(x-anchor.x)*Math.tan(tilt)
+        +this.d.board/(2*Math.cos(tilt))+layer*this.caliper+.004;
+      openRootZ=Math.max(openRootZ,planeZ(p.openX));
+      openForeZ=Math.max(openForeZ,planeZ(foreX));
+    }
     // A real thick book's paper is steep and curved right at the sewing
     // fold, and relaxes onto the supporting pile across the sheet width.
     // This exponential shoulder has a FINITE positive tangent at U=0,
     // then its tangent falls toward that of the raised cover board.
     // This is a local inward page fold, not a symmetric global U trough.
-    const bend=U+.28*(1-Math.exp(-U/.16))*(1-U);
+    // A handful of turned leaves lies almost flat on its cover. Only
+    // an appreciable pile develops a pronounced shoulder at the fold.
+    const bendEngagement=ease(clamp(stackLeaves/64,0,1));
+    const bend=U+.28*bendEngagement*(1-Math.exp(-U/.16))*(1-U);
     // The characteristic page curve is local to EACH leaf near the fold:
     // it rolls IN toward the sewing, then drapes out onto the adjacent
     // paper stack. A heavy stack is nearly a solid block; a thin stack of
@@ -183,10 +194,10 @@ export class SignatureRig {
     const stackFraction=side==='left'?this.position:1-this.position;
     const leafDistance=Math.abs(idx-this.split)/this.total;
     const flexibility=Math.exp(-leafDistance/.20);
-    const inwardCurl=(.045+.78*Math.pow(1-stackFraction,1.1)*flexibility);
+    const inwardCurl=(.012+.38*Math.pow(1-stackFraction,1.1)*flexibility)*bendEngagement;
     const curlProfile=Math.sin(pi*U)*Math.pow(1-U,.75);
-    const bow=.005*Math.sin(pi*U)*Math.sin(V*pi)*Math.cos(idx*.28);
-    const openZ=lerp(p.openZ,openForeZ,bend)+inwardCurl*curlProfile+bow;
+    const bow=.005*bendEngagement*Math.sin(pi*U)*Math.sin(V*pi)*Math.cos(idx*.28);
+    const openZ=lerp(openRootZ,openForeZ,bend)+inwardCurl*curlProfile+bow;
     const closedZ=lerp(p.closedZ,closedForeZ,U);
     const y=(V-.5)*(h-.072);
     const irregularity=this.q*.0012*Math.sin(idx*.87+V*13)*Math.sin(pi*U);
