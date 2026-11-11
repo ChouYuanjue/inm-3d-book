@@ -300,3 +300,39 @@ test('case spine stays convex to the exterior through opening at both ends and t
     }
   }
 });
+
+test('first and last hundred pages preserve layer order at the sewing and across each thin pile',()=>{
+  for(const angle of [105,120,145])for(let count=1;count<=50;count++){
+    for(const side of ['left','right']){
+      const split=side==='left'?count:624-count;
+      const rig=new SignatureRig(dims,1248,split,1,angle);
+      const tilt=side==='left'?rig.leftTilt:rig.rightTilt;
+      const nx=side==='left'?Math.sin(tilt):-Math.sin(tilt),nz=Math.cos(tilt);
+      const top=rig.visibleLeaf(side);
+      for(const u of [0,.01,.03,.06,.12,.25,.5,.8,1]){
+        const face=rig.sheetPoint(top,side,u,.5);
+        for(let k=1;k<count;k++){
+          const under=rig.sheetPoint(top+(side==='left'?-k:k),side,u,.5);
+          const separation=(face.x-under.x)*nx+(face.z-under.z)*nz;
+          assert.ok(separation>.0005,'reading face cannot sink into underlying gatherings: count='+count+' side='+side+' u='+u);
+        }
+      }
+    }
+  }
+});
+
+test('thin piles clear the inside cover continuously, including the gutter',()=>{
+  for(const angle of [105,120,145])for(let count=1;count<=50;count++){
+    for(const side of ['left','right']){
+      const rig=new SignatureRig(dims,1248,side==='left'?count:624-count,1,angle);
+      const bottom=side==='left'?0:623;
+      const a=rig.getBoardAnchor(side),tilt=side==='left'?rig.leftTilt:rig.rightTilt;
+      const nx=side==='left'?Math.sin(tilt):-Math.sin(tilt),nz=Math.cos(tilt);
+      for(let k=0;k<=32;k++){
+        const p=rig.sheetPoint(bottom,side,k/32,.5);
+        const clearance=(p.x-a.x)*nx+(p.z-a.z)*nz-dims.board/2;
+        assert.ok(clearance>.002,'paper must clear its cover near the binding and across its width');
+      }
+    }
+  }
+});

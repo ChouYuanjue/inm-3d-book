@@ -167,16 +167,28 @@ export class SignatureRig {
     const projection=Math.cos(side==='left'?this.leftTilt:this.rightTilt);
     const sign=side==='left'?-1:1;
     const foreX=sign*(w-.018)*projection;
-    const openX=lerp(p.openX,foreX,U);
+    let openRootX=p.openX;
+    let supportRoot=p;
+    let openX=lerp(openRootX,foreX,U);
     const stackLeaves=side==='left'?this.split:this.total-this.split;
     if(stackLeaves<64){
-      // A nearly straight thin pile must rest ON its tilted board.
+      // Use one supported cross-section for a thin pile. The former
+      // per-leaf sewing roots reversed its layer order at the gutter.
+      // All leaves now follow the same shallow surface, offset by paper
+      // thickness, so lower gatherings cannot cut through the reading face.
       const anchor=this.getBoardAnchor(side);
       const tilt=side==='left'?this.leftTilt:this.rightTilt;
+      supportRoot=this.hingeForLeaf(this.visibleLeaf(side)??idx);
+      openRootX=supportRoot.openX;
+      openX=lerp(openRootX,foreX,U);
+      const normalThickness=this.caliper/Math.cos(tilt);
       const planeZ=x=>anchor.z+sign*(x-anchor.x)*Math.tan(tilt)
-        +this.d.board/(2*Math.cos(tilt))+layer*this.caliper+.004;
-      openRootZ=Math.max(openRootZ,planeZ(p.openX));
-      openForeZ=Math.max(openForeZ,planeZ(foreX));
+        +(this.d.board/2+.006)/Math.cos(tilt);
+      const topLayer=stackLeaves-.5;
+      const baseRoot=Math.max(supportRoot.openZ-topLayer*normalThickness,planeZ(supportRoot.x));
+      const baseFore=Math.max(-t/2+rising+boardSupport,planeZ(foreX));
+      openRootZ=baseRoot+layer*normalThickness;
+      openForeZ=baseFore+layer*normalThickness;
     }
     // A real thick book's paper is steep and curved right at the sewing
     // fold, and relaxes onto the supporting pile across the sheet width.
@@ -196,14 +208,14 @@ export class SignatureRig {
     const flexibility=Math.exp(-leafDistance/.20);
     const inwardCurl=(.012+.38*Math.pow(1-stackFraction,1.1)*flexibility)*bendEngagement;
     const curlProfile=Math.sin(pi*U)*Math.pow(1-U,.75);
-    const bow=.005*bendEngagement*Math.sin(pi*U)*Math.sin(V*pi)*Math.cos(idx*.28);
+    const bow=.005*bendEngagement*Math.sin(pi*U)*Math.sin(V*pi)*Math.cos((stackLeaves<64?this.split:idx)*.28);
     const openZ=lerp(openRootZ,openForeZ,bend)+inwardCurl*curlProfile+bow;
     const closedZ=lerp(p.closedZ,closedForeZ,U);
     const y=(V-.5)*(h-.072);
-    const irregularity=this.q*.0012*Math.sin(idx*.87+V*13)*Math.sin(pi*U);
+    const irregularity=this.q*.0012*Math.sin((stackLeaves<64?this.split:idx)*.87+V*13)*Math.sin(pi*U);
     // Use the same finite-thickness spine roll for each leaf's root;
     // its contribution dies away at the fore-edge (U=1).
-    const rootRoll=p.x-lerp(p.closedX,p.openX,this.q);
+    const rootRoll=supportRoot.x-lerp(supportRoot.closedX,supportRoot.openX,this.q);
     return {
       x:lerp(closedX,openX,this.q)+rootRoll*(1-U)+irregularity*U,
       y,z:lerp(closedZ,openZ,this.q)
