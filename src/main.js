@@ -32,7 +32,7 @@ const pageCache=new Map();
 const MAX_CACHED_PAGES=16;
 const host=$('canvasHost');
 const scene=new THREE.Scene();
-const camera=new THREE.PerspectiveCamera(37,1,.08,130);
+const camera=new THREE.PerspectiveCamera(30,1,.08,130);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.8));
 renderer.setSize(host.clientWidth||1000,host.clientHeight||720);
@@ -46,10 +46,15 @@ let renderDirty=true;
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.addEventListener('change',()=>{renderDirty=true;});
 controls.enableDamping=true;controls.dampingFactor=.055;
-controls.enablePan=false;controls.minDistance=3.3;controls.maxDistance=35;
+controls.enablePan=true;controls.screenSpacePanning=true;
+controls.zoomToCursor=true;controls.panSpeed=.85;
+controls.minDistance=1.6;controls.maxDistance=35;
+let panMode=false;
+controls.addEventListener('start',()=>{cameraMotion=null;});
+
 controls.maxPolarAngle=Math.PI*.91;
 controls.minPolarAngle=Math.PI*.11;
-camera.position.set(-4.5,.3,6.2);
+camera.position.set(-5.2,.4,9.3);
 controls.target.set(-.13,.03,0);
 controls.update();
 
@@ -492,13 +497,22 @@ function focusView(view){
     new THREE.Vector3(0,.05,0);
   let destination;
   if(!opened){
-    if(view==='spine')destination=new THREE.Vector3(-5.1,1.5,5.0);
+    if(view==='back')destination=new THREE.Vector3(4.0,.5,-9.3);
+    else if(view==='spine')destination=new THREE.Vector3(-6.8,.4,3.0);
     else if(view==='pages')destination=new THREE.Vector3(3.6,3.4,6.0);
-    else destination=new THREE.Vector3(-4.5,.3,6.2);
+    else destination=new THREE.Vector3(-5.2,.4,9.3);
   }else{
     // Look toward the head of the book so the bowed case spine, shoulders,
     // and two stacks are visible in cross-section rather than from overhead.
-    if(view==='spine')destination=new THREE.Vector3(-.55,worldRootY+1.45,-8.5);
+    if(view==='spine'){
+      bookMechanics.root.updateMatrixWorld(true);
+      const p=bookMechanics.rig.spinePoint(.5);
+      target.copy(bookMechanics.root.localToWorld(new THREE.Vector3(p.x,0,p.z)));
+      // View the outside of the curved case from below its backing.
+      const side=pos<.22?-1:pos>.78?1:0;
+      target.y+=.65;
+      destination=target.clone().add(new THREE.Vector3(side*6.5,-3.8,-10.5));
+    }
     else if(view==='pages')destination=new THREE.Vector3(.2,worldRootY+8.5,2.0);
     else if(view==='read')destination=new THREE.Vector3(
       target.x-.30,worldRootY+6.4+2.5*edgeFraming,4.85+.8*edgeFraming);
@@ -593,6 +607,25 @@ function saveImage(){
   document.body.appendChild(link);link.click();link.remove();
 }
 function bindUI(){
+  const backButton=document.createElement('button');
+  backButton.id='viewBack';backButton.className='view-button';backButton.type='button';
+  backButton.textContent='BACK';backButton.title='Back cover';
+  $('viewSpine').before(backButton);
+  backButton.addEventListener('click',()=>{if(state.open)setCover(false);focusView('back');});
+  const tools=document.createElement('div');
+  tools.className='manipulation-tools';
+  tools.innerHTML='<button id="moveBook" type="button" aria-pressed="false">MOVE</button><button id="resetBookView" type="button">RESET VIEW</button><span>Right-drag to move · Scroll to zoom</span>';
+  $('sceneWrap').append(tools);
+  $('moveBook').addEventListener('click',()=>{
+    panMode=!panMode;
+    controls.mouseButtons.LEFT=panMode?THREE.MOUSE.PAN:THREE.MOUSE.ROTATE;
+    controls.touches.ONE=panMode?THREE.TOUCH.PAN:THREE.TOUCH.ROTATE;
+    $('moveBook').setAttribute('aria-pressed',String(panMode));
+    $('moveBook').textContent=panMode?'ROTATE':'MOVE';
+    renderer.domElement.style.cursor=panMode?'move':'grab';
+  });
+  $('resetBookView').addEventListener('click',()=>focusView(state.open?'read':'front'));
+
   $('pageCount').addEventListener('change',ev=>setPageCount(ev.target.value));
   $('pagesRange').addEventListener('input',ev=>setPageCount(ev.target.value));
   $('restorePageCount').addEventListener('click',resetToSource);
@@ -660,6 +693,7 @@ function bindUI(){
   });
   renderer.domElement.addEventListener('pointerup',ev=>{
     if(!mouseStart)return;
+    if(panMode||ev.button!==0||!ev.isPrimary){mouseStart=null;return;}
     const distance=Math.hypot(mouseStart.x-ev.clientX,mouseStart.y-ev.clientY);
     mouseStart=null;if(distance>6||state.isMoving)return;
     const rect=renderer.domElement.getBoundingClientRect();

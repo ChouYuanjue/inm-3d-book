@@ -156,7 +156,7 @@ export function makeBack({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a
 
   ctx.fillStyle=ink;
   ctx.font='20px Arial, sans-serif';
-  ctx.fillText('INFORMAL NOTES',110,150);
+
   ctx.fillStyle='#161918';
   ctx.font='bold 53px "Times New Roman", serif';
   const lines=fittedTitleLines(title);
@@ -167,17 +167,21 @@ export function makeBack({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a
 
   ctx.fillStyle=ink;
   ctx.font='italic 37px "Times New Roman", serif';
-  ctx.fillText('Definitions. Examples. Proofs.',110,y+151);
+  ctx.fillText('Connections across modern mathematics',110,y+151,980);
 
   ctx.fillStyle='#303632';
-  ctx.font='31px "Times New Roman", serif';
+  ctx.font='29px "Times New Roman", serif';
   [
-    'A personal notebook of mathematical explorations:',
-    'ideas worked through in detail, examples followed',
-    'to their conclusions, and proofs unpacked step by step.',
+    'What makes distant branches of mathematics',
+    'belong to the same landscape?',
     '',
-    'Written for the pleasure of understanding,',
-    'and for the connections that appear along the way.'
+    'Moving through algebra, analysis, geometry and topology,',
+    'this volume follows ideas beyond the boundaries',
+    'of a single course. Detailed arguments sit alongside',
+    'worked examples and the intuitions that motivate them.',
+    '',
+    'A book to read in sequence, explore by curiosity,',
+    'and return to as familiar ideas acquire new meaning.'
   ].forEach((line,i)=>ctx.fillText(line,110,y+250+i*49,980));
 
   ctx.strokeStyle=ink;ctx.lineWidth=2;

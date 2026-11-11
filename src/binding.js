@@ -395,6 +395,19 @@ export class HardcoverMechanics{
     const foldedPaperMat=this.own(mat(0xe7e2d9,{side:THREE.DoubleSide}));
     this.signatureMaterial=[paperMat,edgeMat,bindingMat];
 
+    // Closed gatherings form a smooth trimmed paper block, rather than
+    // exposing the coarse wavy outline of every aggregated signature.
+    const blockGeometry=new THREE.BoxGeometry(w-.05,h-.072,t-.006);
+    const pv=blockGeometry.attributes.position,uv=blockGeometry.attributes.uv;
+    for(let i=0;i<pv.count;i++){
+      const z=pv.getZ(i)/(t-.006)+.5;
+      uv.setXY(i,pv.getX(i)/w+.5,z);
+    }
+    const cutMaterial=this.own(mat(0xf1ede4,{map:m.edge}));
+    const faceMaterial=this.own(mat(0xf1ede4));
+    this.closedBlock=this.make(blockGeometry,
+      [cutMaterial,cutMaterial,cutMaterial,cutMaterial,faceMaterial,faceMaterial]);
+    this.closedBlock.position.x=w/2+.005;
     this.signatureCount=Math.ceil(this.printPages/32);
     for(const side of ['left','right']){
       for(let n=0;n<this.signatureCount;n++){
@@ -479,6 +492,13 @@ export class HardcoverMechanics{
         updateBulkCut(mesh,rig,side,sign);
       }
     }
+    this.closedBlock.visible=rig.q<.015;
+    if(this.closedBlock.visible){
+      for(const side of ['left','right']){
+        for(const mesh of this.signatureMeshes[side])mesh.visible=false;
+        for(const {mesh} of this.bulkCutMeshes[side])mesh.visible=false;
+      }
+    }
     updatePage(this.leftPage,rig,'left');
     updatePage(this.rightPage,rig,'right');
     const front=rig.getBoardAnchor('left'),back=rig.getBoardAnchor('right');
@@ -508,12 +528,12 @@ export class HardcoverMechanics{
     }
     updateSpine(this.spine,rig,d.h,d.overhang);
     updateTextblockBacking(this.sewnBacking,rig,d.h);
-    const wantedMap=q>.92?null:this.materials.spine;
+    const wantedMap=this.materials.spine;
     if(this.spine.material.map!==wantedMap){
       this.spine.material.map=wantedMap;
       this.spine.material.needsUpdate=true;
     }
-    this.spine.material.color.set(q>.92?0xe4dacf:0xffffff);
+    this.spine.material.color.set(0xffffff);
     for(const hb of this.headbands){
       updateEndband(hb,rig);
       hb.visible=false; // Keep head/tail cloth free of artificial blue trim.
