@@ -31,11 +31,13 @@ export class SignatureRig {
     this.total=Math.max(1,Math.ceil(printPages/2));
     this.sheetsPerSignature=LEAVES_PER_SIGNATURE;
     this.count=Math.ceil(this.total/LEAVES_PER_SIGNATURE);
-    this.split=clamp(Math.round(spread/this.sourceTotal*this.total),0,this.total);
+    const split=spread/this.sourceTotal*this.total;
+    this.split=clamp(Number.isInteger(spread)?Math.round(split):split,0,this.total);
     this.position=this.split/this.total;
     this.q=clamp(q,0,1);
     this.openAngle=clamp(openAngle,90,145);
     this.caliper=d.t/this.total;
+    this.curves=new Map();
     // Radius describes the spine's backbend, NOT the thickness of a page.
     // The neutral arc moves toward whichever side is carrying more sheets.
     const balance=Math.sin(pi*this.position);
@@ -144,84 +146,76 @@ export class SignatureRig {
       z:lerp(left.z,right.z,s)+normalZ*offset
     };
   }
-  /** x,y,z surface location for a *physical* sheet, in book coordinates. */
-  sheetPoint(leaf,side,u,v=0.5){
-    const {w,h,t}=this.d;
-    const idx=clamp(leaf,0,this.total-1);
-    const p=this.hingeForLeaf(idx);
-    const U=clamp(u,0,1),V=clamp(v,0,1);
-    // A right stack is indexed from its top toward the bottom. The left
-    // stack is indexed from its bottom toward its top.
+  openCurve(leaf,side){
+    const idx=clamp(leaf,0,this.total-1),key=side+':'+idx;
+    if(this.curves.has(key))return this.curves.get(key);
+    const p=this.hingeForLeaf(idx),anchor=this.getBoardAnchor(side);
+    const tilt=side==='left'?this.leftTilt:this.rightTilt,sign=side==='left'?-1:1;
+    const dx=sign*Math.cos(tilt),dz=Math.sin(tilt);
+    const nx=-sign*Math.sin(tilt),nz=Math.cos(tilt);
+    const count=side==='left'?this.split:this.total-this.split;
     const layer=side==='left'?idx+.5:this.total-idx-.5;
-    const rising=side==='left'?this.outerRiseLeft:this.outerRiseRight;
-    // The fore-edge is raised by the physical board V-angle, with the
-    // signature's own leaf-stack thickness preserved. The previous sign
-    // error dropped the outer edge and fabricated knife-shaped wedges.
-    const boardSupport=side==='left'?this.leftSupportOffset:this.rightSupportOffset;
-    let openRootZ=p.openZ;
-    let openForeZ=-t/2+layer*this.caliper+rising+boardSupport;
-    const closedForeZ=t/2-(idx+.5)*this.caliper;
-    const edgeInset=t*.16*Math.sin(pi*(idx+.5)/this.total);
-    const closedX=lerp(p.closedX,w-.018-edgeInset,U);
-    // Page width is projected into the V of its supporting cover.
-    // Previously the cover rotated but the paper extended horizontally
-    // at FULL width, so the board cut THROUGH the page near its center.
-    const projection=Math.cos(side==='left'?this.leftTilt:this.rightTilt);
-    const sign=side==='left'?-1:1;
-    const foreX=sign*(w-.018)*projection;
-    let openRootX=p.openX;
-    let supportRoot=p;
-    let openX=lerp(openRootX,foreX,U);
-    const stackLeaves=side==='left'?this.split:this.total-this.split;
-    if(stackLeaves<64){
-      // Use one supported cross-section for a thin pile. The former
-      // per-leaf sewing roots reversed its layer order at the gutter.
-      // All leaves now follow the same shallow surface, offset by paper
-      // thickness, so lower gatherings cannot cut through the reading face.
-      const anchor=this.getBoardAnchor(side);
-      const tilt=side==='left'?this.leftTilt:this.rightTilt;
-      supportRoot=this.hingeForLeaf(this.visibleLeaf(side)??idx);
-      openRootX=supportRoot.openX;
-      openX=lerp(openRootX,foreX,U);
-      const normalThickness=this.caliper/Math.cos(tilt);
-      const planeZ=x=>anchor.z+sign*(x-anchor.x)*Math.tan(tilt)
-        +(this.d.board/2+.006)/Math.cos(tilt);
-      const topLayer=stackLeaves-.5;
-      const baseRoot=Math.max(supportRoot.openZ-topLayer*normalThickness,planeZ(supportRoot.x));
-      const baseFore=Math.max(-t/2+rising+boardSupport,planeZ(foreX));
-      openRootZ=baseRoot+layer*normalThickness;
-      openForeZ=baseFore+layer*normalThickness;
+    let rootX=p.x,rootZ=p.openZ;
+    const minimum=this.d.board/2+.006;
+    if(count<64){
+      // The thin pile has a common supported sewing line, with ordered
+      // normal offsets. This prevents its lower leaves crossing the face.
+      const ref=this.hingeForLeaf(this.visibleLeaf(side)??idx);
+      const top=count-.5;
+      const refNormal=(ref.x-anchor.x)*nx+(ref.openZ-anchor.z)*nz;
+      const base=Math.max(minimum,refNormal-top*this.caliper);
+      const desired=base+layer*this.caliper;
+      rootX=ref.x+(desired-refNormal)*nx;
+      rootZ=ref.openZ+(desired-refNormal)*nz;
+    }else{
+      const h=(rootX-anchor.x)*nx+(rootZ-anchor.z)*nz;
+      if(h<minimum){rootX+=(minimum-h)*nx;rootZ+=(minimum-h)*nz;}
     }
-    // A real thick book's paper is steep and curved right at the sewing
-    // fold, and relaxes onto the supporting pile across the sheet width.
-    // This exponential shoulder has a FINITE positive tangent at U=0,
-    // then its tangent falls toward that of the raised cover board.
-    // This is a local inward page fold, not a symmetric global U trough.
-    // A handful of turned leaves lies almost flat on its cover. Only
-    // an appreciable pile develops a pronounced shoulder at the fold.
-    const bendEngagement=ease(clamp(stackLeaves/64,0,1));
-    const bend=U+.28*bendEngagement*(1-Math.exp(-U/.16))*(1-U);
-    // The characteristic page curve is local to EACH leaf near the fold:
-    // it rolls IN toward the sewing, then drapes out onto the adjacent
-    // paper stack. A heavy stack is nearly a solid block; a thin stack of
-    // just-turned pages curls much more freely. This is not a global U.
-    const stackFraction=side==='left'?this.position:1-this.position;
-    const leafDistance=Math.abs(idx-this.split)/this.total;
-    const flexibility=Math.exp(-leafDistance/.20);
-    const inwardCurl=(.012+.38*Math.pow(1-stackFraction,1.1)*flexibility)*bendEngagement;
-    const curlProfile=Math.sin(pi*U)*Math.pow(1-U,.75);
-    const bow=.005*bendEngagement*Math.sin(pi*U)*Math.sin(V*pi)*Math.cos((stackLeaves<64?this.split:idx)*.28);
-    const openZ=lerp(openRootZ,openForeZ,bend)+inwardCurl*curlProfile+bow;
-    const closedZ=lerp(p.closedZ,closedForeZ,U);
-    const y=(V-.5)*(h-.072);
-    const irregularity=this.q*.0012*Math.sin((stackLeaves<64?this.split:idx)*.87+V*13)*Math.sin(pi*U);
-    // Use the same finite-thickness spine roll for each leaf's root;
-    // its contribution dies away at the fore-edge (U=1).
-    const rootRoll=supportRoot.x-lerp(supportRoot.closedX,supportRoot.openX,this.q);
-    return {
-      x:lerp(closedX,openX,this.q)+rootRoll*(1-U)+irregularity*U,
-      y,z:lerp(closedZ,openZ,this.q)
+    const h0=(rootX-anchor.x)*nx+(rootZ-anchor.z)*nz;
+    const h1=minimum+layer*this.caliper;
+    const engagement=ease(clamp(count/64,0,1));
+    const distance=Math.abs(idx-this.split)/this.total;
+    const fraction=count/this.total;
+    const curl=(.012+.25*Math.pow(1-fraction,1.1)*Math.exp(-distance/.20))*engagement;
+    const N=96,heights=[],steps=[];
+    for(let k=0;k<=N;k++){
+      const u=k/N;
+      const shoulder=u+.28*engagement*(1-Math.exp(-u/.16))*(1-u);
+      heights.push(lerp(h0,h1,shoulder)+curl*Math.sin(pi*u)*Math.pow(1-u,.75));
+    }
+    const length=this.d.w+.027;
+    // Solve projected span, not paper length. The cross-section keeps
+    // the same arc length on either stack, whatever its local curvature.
+    const arc=span=>{
+      let sum=0;
+      for(let k=1;k<=N;k++)sum+=Math.hypot(span/N,heights[k]-heights[k-1]);
+      return sum;
     };
+    let lo=0,hi=length;
+    for(let k=0;k<26;k++){const mid=(lo+hi)/2;if(arc(mid)>length)hi=mid;else lo=mid;}
+    const span=(lo+hi)/2;
+    steps.push(0);
+    for(let k=1;k<=N;k++)steps.push(steps[k-1]+Math.hypot(span/N,heights[k]-heights[k-1]));
+    const curve={rootX,rootZ,dx,dz,nx,nz,h0,heights,steps,span,length,N};
+    this.curves.set(key,curve);return curve;
+  }
+  /** u follows arc length, so printing and turning share one paper metric. */
+  sheetPoint(leaf,side,u,v=.5){
+    const idx=clamp(leaf,0,this.total-1),U=clamp(u,0,1),V=clamp(v,0,1);
+    const {w,h,t}=this.d,p=this.hingeForLeaf(idx);
+    const inset=t*.16*Math.sin(pi*(idx+.5)/this.total);
+    const closedX=lerp(p.closedX,w-.018-inset,U);
+    const closedForeZ=t/2-(idx+.5)*this.caliper;
+    const closedZ=lerp(p.closedZ,closedForeZ,U);
+    const c=this.openCurve(idx,side),target=U*c.steps[c.N];
+    let lo=0,hi=c.N;
+    while(hi-lo>1){const mid=(lo+hi)>>1;if(c.steps[mid]<target)lo=mid;else hi=mid;}
+    const ratio=(target-c.steps[lo])/Math.max(1e-12,c.steps[hi]-c.steps[lo]);
+    const along=c.span*(lo+ratio)/c.N;
+    const normal=lerp(c.heights[lo],c.heights[hi],ratio)-c.h0;
+    const openX=c.rootX+c.dx*along+c.nx*normal;
+    const openZ=c.rootZ+c.dz*along+c.nz*normal;
+    return {x:lerp(closedX,openX,this.q),y:(V-.5)*(h-.072),z:lerp(closedZ,openZ,this.q)};
   }
   /** True 3D fold thickness of an individual gathering, not a wedge. */
   spineFoldThickness(sig,side){

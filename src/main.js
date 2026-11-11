@@ -6,6 +6,7 @@ import { initBookOutline } from './toc.js';
 import { createPageInspector } from './inspector.js';
 import { HardcoverMechanics } from './binding.js';
 import { SignatureRig } from './signature-rig.js';
+import { TurningLeaf } from './turning-leaf.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
@@ -49,8 +50,11 @@ controls.enableDamping=true;controls.dampingFactor=.055;
 controls.enablePan=true;controls.screenSpacePanning=true;
 controls.zoomToCursor=true;controls.panSpeed=.85;
 controls.minDistance=1.6;controls.maxDistance=35;
-let panMode=false;
-controls.addEventListener('start',()=>{cameraMotion=null;});
+let panMode=false,userAdjustedView=false;
+controls.addEventListener('start',()=>{
+  cameraMotion=null;userAdjustedView=true;
+  if(state.flip)state.flip.autoFrame=false;
+});
 
 controls.maxPolarAngle=Math.PI*.91;
 controls.minPolarAngle=Math.PI*.11;
@@ -352,6 +356,7 @@ function setCover(open){
 function removeFlip(){
   if(!state.flip)return;
   const f=state.flip;
+  if(f.autoFrame&&f.cameraPosition)camera.position.copy(f.cameraPosition);
   if(f.group.parent)f.group.parent.remove(f.group);
   f.geometry.dispose();
   if(f.backMat.map)f.backMat.map.dispose();
@@ -359,32 +364,14 @@ function removeFlip(){
   state.flip=null;
 }
 function updateFlipSurface(f,amount){
-  const geometry=f.geometry, positions=geometry.attributes.position;
-  const original=f.basePositions;
-  const w=geometryParams.w;
-  const lift=Math.sin(Math.PI*amount);
-  for(let i=0;i<positions.count;i++){
-    const sx=original[i*3],sy=original[i*3+1];
-    const u=f.dir>0?sx+.5:.5-sx,v=sy+.5;
-    const a=f.poseFrom.sheetPoint(f.leaf,f.fromSide,u,v);
-    const b=f.poseTo.sheetPoint(f.leaf,f.toSide,u,v);
-    // The sheet remains rooted in its own signature fold. The outer edge
-    // rises into a standing curved leaf before settling on the opposite stack.
-    const arc=Math.sin(Math.PI*u);
-    // Leaf flexes SIDEWAYS during the turn. Without this bow every sheet
-    // was a rigid, razor-thin vertical blade at the animation midpoint.
-    const x=THREE.MathUtils.lerp(a.x,b.x,amount)+
-      lift*(f.dir>0?1:-1)*.22*arc+
-      lift*.044*arc*(v-.5);
-    const z=THREE.MathUtils.lerp(a.z,b.z,amount)+
-      lift*(w*.80*u+.18*arc);
-    const y=THREE.MathUtils.lerp(a.y,b.y,amount)+
-      lift*.023*Math.sin(Math.PI*u)*Math.sin(v*Math.PI);
-    positions.setXYZ(i,x,y,z+.004);
+  const rig=bookMechanics.applyTurn(f.stationaryPose,amount);
+  f.model.writePositions(f.geometry.attributes.position,amount,f.dir,rig);
+  f.geometry.computeVertexNormals();f.geometry.computeBoundingSphere();
+  if(f.autoFrame){
+    const direction=f.cameraPosition.clone().sub(f.cameraTarget);
+    camera.position.copy(f.cameraTarget).addScaledVector(direction,1+(f.frameScale-1)*Math.sin(Math.PI*amount));
+    controls.target.copy(f.cameraTarget);
   }
-  positions.needsUpdate=true;
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
 }
 async function flipPage(dir){
   if(state.isMoving)return;
@@ -401,7 +388,7 @@ async function flipPage(dir){
       pageTexture(first),pageTexture(reverse),pageTexture(underneath)
     ]);
     if(!state.isMoving||!state.open){state.isMoving=false;return;}
-    const geom=new THREE.PlaneGeometry(1,1,48,12);
+    const geom=new THREE.PlaneGeometry(1,1,64,16);
     const original=Float32Array.from(geom.attributes.position.array);
     const fromSide=dir>0?'right':'left',toSide=dir>0?'left':'right';
     const poseFrom=new SignatureRig(geometryParams,state.sourcePages,current,1,state.openAngle,state.pages);
@@ -425,12 +412,14 @@ async function flipPage(dir){
     const backMap=back.clone();
     backMap.wrapS=THREE.RepeatWrapping;backMap.repeat.x=-1;backMap.offset.x=1;
     backMap.needsUpdate=true;
-    const frontMat=new THREE.MeshStandardMaterial({
-      map:front,roughness:.98,side:THREE.FrontSide,vertexColors:true
+    const frontMat=new THREE.MeshBasicMaterial({
+      map:front,toneMapped:false,side:THREE.FrontSide,vertexColors:true
     });
-    const backMat=new THREE.MeshStandardMaterial({
-      map:backMap,roughness:.98,side:THREE.BackSide,vertexColors:true
+    const backMat=new THREE.MeshBasicMaterial({
+      map:backMap,toneMapped:false,side:THREE.BackSide,vertexColors:true
     });
+    const stationaryPose=bookMechanics.captureTurn(next);
+    const model=new TurningLeaf({from:poseFrom,to:poseTo,fromSide,toSide,columns:64,rows:16});
     const group=new THREE.Group();
     const frontMesh=new THREE.Mesh(geom,frontMat);
     const backMesh=new THREE.Mesh(geom,backMat);
@@ -438,9 +427,21 @@ async function flipPage(dir){
     group.add(frontMesh,backMesh);bookRoot.add(group);
     const f={
       group,geometry:geom,basePositions:original,frontMat,backMat,
-      poseFrom,poseTo,fromSide,toSide,leaf:dir>0?current:current-1,
-      dir,start:performance.now(),lastTime:performance.now(),progress:0,duration:850
+      poseFrom,poseTo,fromSide,toSide,model,stationaryPose,
+      dir,autoFrame:!userAdjustedView&&!cameraMotion,cameraPosition:camera.position.clone(),cameraTarget:controls.target.clone(),frameScale:1,
+      start:performance.now(),lastTime:performance.now(),progress:0,duration:850
     };
+    if(f.autoFrame){
+      camera.updateMatrixWorld(true);bookRoot.updateMatrixWorld(true);
+      for(const t of [.2,.5,.8])for(const row of [0,16]){
+        const points=model.row(row,t);
+        for(const i of [0,16,32,48,64]){
+          const p=points[i],screen=bookRoot.localToWorld(new THREE.Vector3(p.x,p.y,p.z)).project(camera);
+          f.frameScale=Math.max(f.frameScale,Math.abs(screen.x)/.90,Math.abs(screen.y)/.84);
+        }
+      }
+      f.frameScale=Math.min(1.45,f.frameScale);
+    }
     updateFlipSurface(f,0);
     if(dir>0)setTextureOn(parts.rightPage,under);
     else setTextureOn(parts.leftPage,under);
@@ -494,6 +495,7 @@ function animate(time){
   if(renderDirty||controlsChanged){renderer.render(scene,camera);renderDirty=false;}
 }
 function focusView(view){
+  userAdjustedView=false;
   document.querySelectorAll('.view-button').forEach(x=>x.classList.toggle('active',x.id==='view'+view[0].toUpperCase()+view.slice(1)));
   const d=geometryParams||dims();
   const opened=state.open;

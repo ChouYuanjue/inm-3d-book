@@ -326,10 +326,9 @@ function updateBulkCut(mesh,rig,side,sign){
     const grain=.928-.031*seam-.009*Math.sin(j*1.77)*Math.sin(j*.31)-.008*layer;
     for(let i=0;i<=nu;i++){
       const u=i/nu,k=j*(nu+1)+i;
-      const a=rig.sheetPoint(bottom,side,u,V);
-      const b=rig.sheetPoint(top,side,u,V);
-      const z=lerp(a.z,b.z,layer);
-      const x=lerp(a.x,b.x,layer);
+      const sheet=lerp(bottom,top,layer);
+      const point=rig.sheetPoint(sheet,side,u,V);
+      const z=point.z,x=point.x;
       p.setXYZ(k,x,y,z);
       const mottling=grain-.005*Math.sin(i*.73+j*.21);
       c.setXYZ(k,mottling,mottling*.971,mottling*.936);
@@ -602,6 +601,56 @@ export class HardcoverMechanics{
       signatures:rig.count,rootArc:rig.analyze(),boardTilt:tilt};
     return this.last;
   }
+
+  captureTurn(nextSpread){
+    const previous={...this.last};
+    function capture(root){
+      const objects=[];
+      root.traverse(object=>{
+        const attributes={};
+        if(object.geometry)for(const name of ['position','normal','uv','color']){
+          const a=object.geometry.attributes[name];
+          if(a)attributes[name]=Float32Array.from(a.array);
+        }
+        objects.push({object,visible:object.visible,position:object.position.clone(),
+          quaternion:object.quaternion.clone(),scale:object.scale.clone(),attributes});
+      });
+      return objects;
+    }
+    const from=capture(this.root);
+    this.render(1,nextSpread,previous.sourcePages,previous.printPages,previous.openAngle);
+    const to=capture(this.root);
+    this.render(1,previous.spread,previous.sourcePages,previous.printPages,previous.openAngle);
+    const entries=from.map((a,i)=>{
+      const b=to[i],attributes=[];
+      for(const name of Object.keys(a.attributes)){
+        const p=a.attributes[name],q=b.attributes[name];
+        if(p.some((x,k)=>x!==q[k]))attributes.push({name,from:p,to:q});
+      }
+      return {from:a,to:b,attributes};
+    });
+    return {entries,spread:previous.spread,nextSpread,sourcePages:previous.sourcePages,
+      printPages:previous.printPages,openAngle:previous.openAngle};
+  }
+  applyTurn(pose,amount){
+    const t=clamp(amount,0,1);
+    for(const entry of pose.entries){
+      const a=entry.from,b=entry.to,object=a.object;
+      object.visible=t===0?a.visible:t===1?b.visible:a.visible&&b.visible;
+      object.position.lerpVectors(a.position,b.position,t);
+      object.quaternion.slerpQuaternions(a.quaternion,b.quaternion,t);
+      object.scale.lerpVectors(a.scale,b.scale,t);
+      for(const {name,from,to} of entry.attributes){
+        const attribute=object.geometry.attributes[name],array=attribute.array;
+        for(let k=0;k<array.length;k++)array[k]=lerp(from[k],to[k],t);
+        attribute.needsUpdate=true;
+      }
+    }
+    this.rig=new SignatureRig(this.dimensions,pose.sourcePages,
+      lerp(pose.spread,pose.nextSpread,t),1,pose.openAngle,pose.printPages);
+    return this.rig;
+  }
+
   pageSurface(side,spread,sourcePages,u){
     const rig=new SignatureRig(this.dimensions,sourcePages,spread,1,this.last?.openAngle||154,this.last?.printPages||sourcePages);
     const idx=rig.visibleLeaf(side);

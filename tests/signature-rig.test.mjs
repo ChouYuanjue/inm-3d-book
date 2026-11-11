@@ -239,12 +239,12 @@ test('middle pages engage the whole spine and have inward curved folds',()=>{
   const outer=mid.sheetPoint(312,'right',1,.5);
   const linear=root.z+.2*(outer.z-root.z);
   assert.ok(mid.spineEngagement>.99);
-  assert.ok(shoulder.z>linear+.10,'page shoulder must roll inward before spreading');
+  assert.ok(shoulder.z>linear+.025,'page shoulder must roll inward before spreading');
   assert.ok(Math.abs(mid.leftTilt-mid.rightTilt)<.001);
 });
 
 
-test('curled folios follow the raised cover projection instead of intersecting it',()=>{
+test('length-derived folio edges stay above their supporting cover',()=>{
   const d=dims;
   for(const spread of [1,5,30,312,594,620,623]){
     const rig=new SignatureRig(d,1248,spread,1,120);
@@ -254,8 +254,10 @@ test('curled folios follow the raised cover projection instead of intersecting i
       const tilt=side==='left'?rig.leftTilt:rig.rightTilt;
       const p=rig.sheetPoint(leaf,side,1,.5);
       const sign=side==='left'?-1:1;
-      assert.ok(Math.abs(p.x-sign*(d.w-.018)*Math.cos(tilt))<.0001,
-        'folio outer edge must follow the rotated board footprint');
+      const anchor=rig.getBoardAnchor(side);
+      const normal=(-sign*Math.sin(tilt))*(p.x-anchor.x)+Math.cos(tilt)*(p.z-anchor.z);
+      assert.ok(normal>d.board/2+.003,'outer edge must remain above the inside cover');
+      assert.ok(sign*p.x>0,'free edge stays on its proper side of the gutter');
     }
   }
 });

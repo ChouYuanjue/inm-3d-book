@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build --base=/inm-3d-book/",
-    "test": "node --test tests/signature-rig.test.mjs",
+    "test": "node --test tests/*.test.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
