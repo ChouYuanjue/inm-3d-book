@@ -341,6 +341,61 @@ function updateBulkCut(mesh,rig,side,sign){
   g.computeBoundingSphere();
 }
 
+
+export function closedPaperPoint(d,s,u,v){
+  const inset=d.t*.16*Math.sin(Math.PI*s);
+  return {x:lerp(-.045-inset,d.w-.018-inset,u),
+    y:(v-.5)*(d.h-.072),z:d.t*(.5-s)};
+}
+export function closedPaperGeometry(d){
+  const positions=[],uv=[],indices=[],groups=[];
+  function face(nx,ny,point,reverse,material,cut){
+    const start=positions.length/3,indexStart=indices.length;
+    for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
+      const a=i/nx,b=j/ny,p=point(a,b);positions.push(p.x,p.y,p.z);
+      uv.push(a,cut?(.5-p.z/d.t):b);
+    }
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+      const a=start+j*(nx+1)+i,c=a+nx+2,b=a+1,e=a+nx+1;
+      if(reverse)indices.push(a,c,b,a,e,c);else indices.push(a,b,c,a,c,e);
+    }
+    groups.push([indexStart,indices.length-indexStart,material]);
+  }
+  face(34,100,(u,s)=>closedPaperPoint(d,s,u,1),false,0,true);
+  face(34,100,(u,s)=>closedPaperPoint(d,s,u,0),true,0,true);
+  face(100,3,(s,v)=>closedPaperPoint(d,s,0,v),true,0,true);
+  face(100,3,(s,v)=>closedPaperPoint(d,s,1,v),false,0,true);
+  face(34,3,(u,v)=>closedPaperPoint(d,0,u,v),false,1,false);
+  face(34,3,(u,v)=>closedPaperPoint(d,1,u,v),true,1,false);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.setIndex(indices);
+  groups.forEach(a=>g.addGroup(...a));g.computeVertexNormals();return g;
+}
+export function spineRimGeometry(nu=100,nv=4){
+  const segments=2*(nu+nv),g=new THREE.BufferGeometry(),indices=[];
+  g.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(segments*12),3));
+  for(let k=0;k<segments;k++){const a=k*4;indices.push(a,a+1,a+2,a,a+2,a+3);}
+  g.setIndex(indices);return g;
+}
+export function updateSpineShell(outer,inner,rims,thickness){
+  const g=outer.geometry,p=g.attributes.position,n=g.attributes.normal;
+  const ip=inner.geometry.attributes.position;
+  for(let k=0;k<p.count;k++)ip.setXYZ(k,p.getX(k)-n.getX(k)*thickness,
+    p.getY(k)-n.getY(k)*thickness,p.getZ(k)-n.getZ(k)*thickness);
+  ip.needsUpdate=true;inner.geometry.computeVertexNormals();inner.geometry.computeBoundingSphere();
+  const {nu,nv}=g.userData,boundary=[];
+  for(let i=0;i<nu;i++)boundary.push([i,i+1]);
+  for(let j=0;j<nv;j++)boundary.push([j*(nu+1)+nu,(j+1)*(nu+1)+nu]);
+  for(let i=nu;i>0;i--)boundary.push([nv*(nu+1)+i,nv*(nu+1)+i-1]);
+  for(let j=nv;j>0;j--)boundary.push([j*(nu+1),(j-1)*(nu+1)]);
+  const rp=rims.geometry.attributes.position;
+  boundary.forEach(([a,b],k)=>{
+    [[p,a],[p,b],[ip,b],[ip,a]].forEach(([v,i],j)=>rp.setXYZ(k*4+j,v.getX(i),v.getY(i),v.getZ(i)));
+  });
+  rp.needsUpdate=true;rims.geometry.computeVertexNormals();rims.geometry.computeBoundingSphere();
+}
+
 export class HardcoverMechanics{
   constructor({root,materials,dimensions,sourcePages=1248,printPages=sourcePages}){
     this.root=root;this.materials=materials;this.dimensions=dimensions;
@@ -397,17 +452,10 @@ export class HardcoverMechanics{
 
     // Closed gatherings form a smooth trimmed paper block, rather than
     // exposing the coarse wavy outline of every aggregated signature.
-    const blockGeometry=new THREE.BoxGeometry(w-.05,h-.072,t-.006);
-    const pv=blockGeometry.attributes.position,uv=blockGeometry.attributes.uv;
-    for(let i=0;i<pv.count;i++){
-      const z=pv.getZ(i)/(t-.006)+.5;
-      uv.setXY(i,pv.getX(i)/w+.5,z);
-    }
-    const cutMaterial=this.own(mat(0xf1ede4,{map:m.edge}));
-    const faceMaterial=this.own(mat(0xf1ede4));
-    this.closedBlock=this.make(blockGeometry,
-      [cutMaterial,cutMaterial,cutMaterial,cutMaterial,faceMaterial,faceMaterial]);
-    this.closedBlock.position.x=w/2+.005;
+    const blockGeometry=closedPaperGeometry(this.dimensions);
+    const cutMaterial=this.own(mat(0xf1ede4,{map:m.edge,side:THREE.DoubleSide}));
+    const faceMaterial=this.own(mat(0xf1ede4,{side:THREE.DoubleSide}));
+    this.closedBlock=this.make(blockGeometry,[cutMaterial,faceMaterial]);
     this.signatureCount=Math.ceil(this.printPages/32);
     for(const side of ['left','right']){
       for(let n=0;n<this.signatureCount;n++){
@@ -453,7 +501,12 @@ export class HardcoverMechanics{
     // gathering hinges but never opens into a pair of book-page wings.
     this.spineGeometry=spineGeometry(h,true);
     this.spine=this.make(this.spineGeometry,
-      this.own(mat(0xffffff,{map:m.spine,side:THREE.DoubleSide,bumpMap:m.clothBump||null,bumpScale:.001})));
+      this.own(mat(0xffffff,{map:m.spine,side:THREE.FrontSide,bumpMap:m.clothBump||null,bumpScale:.001,emissive:0xffffff,emissiveMap:m.spine,emissiveIntensity:.16})));
+    this.spineThickness=Math.max(.008,Math.min(.04,board*.82));
+    this.spineLining=this.make(spineGeometry(h,false),
+      this.own(mat(0xe1dacd,{side:THREE.FrontSide})));
+    this.spineRims=this.make(spineRimGeometry(),this.own(mat(0xe1dacd,{side:THREE.DoubleSide})));
+    this.spineLining.frustumCulled=false;this.spineRims.frustumCulled=false;
     this.sewnBacking=this.make(spineGeometry(h),
       this.own(mat(0xc7bcaa,{side:THREE.DoubleSide,roughness:1})));
     this.sewnBacking.frustumCulled=false;
@@ -527,10 +580,12 @@ export class HardcoverMechanics{
       v.needsUpdate=true;mesh.geometry.computeVertexNormals();mesh.geometry.computeBoundingSphere();
     }
     updateSpine(this.spine,rig,d.h,d.overhang);
+    updateSpineShell(this.spine,this.spineLining,this.spineRims,this.spineThickness);
     updateTextblockBacking(this.sewnBacking,rig,d.h);
     const wantedMap=this.materials.spine;
     if(this.spine.material.map!==wantedMap){
       this.spine.material.map=wantedMap;
+      this.spine.material.emissiveMap=wantedMap;
       this.spine.material.needsUpdate=true;
     }
     this.spine.material.color.set(0xffffff);

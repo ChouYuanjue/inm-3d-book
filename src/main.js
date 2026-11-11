@@ -104,9 +104,18 @@ function canvasTexture(c) {
   t.needsUpdate=true;
   return t;
 }
+function spineArtOptions(){
+  const d=dims(),rig=new SignatureRig(d,state.sourcePages,0,0,state.openAngle,state.pages);
+  let arc=0,previous=rig.spinePoint(0);
+  for(let k=1;k<=100;k++){
+    const p=rig.spinePoint(k/100);
+    arc+=Math.hypot(p.x-previous.x,p.z-previous.z);previous=p;
+  }
+  return {...state,spineAspect:arc/(d.h+2*d.overhang)};
+}
 function makeMats() {
   coverTexture=canvasTexture(makeFrontCover(state));
-  spineTexture=canvasTexture(makeSpine(state));
+  spineTexture=canvasTexture(makeSpine(spineArtOptions()));
   backTexture=canvasTexture(makeBack(state));
   edgeTexture=canvasTexture(makeEdge());
   placeholderTexture=canvasTexture(makePlaceholder());
@@ -115,7 +124,7 @@ function makeMats() {
   clothBump.repeat.set(4,4);
   frontMaterial=new THREE.MeshStandardMaterial({map:coverTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.91,metalness:0,emissive:0xffffff,emissiveMap:coverTexture,emissiveIntensity:.16});
   spineMaterial=new THREE.MeshStandardMaterial({map:spineTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
-  backMaterial=new THREE.MeshStandardMaterial({map:backTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
+  backMaterial=new THREE.MeshStandardMaterial({map:backTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0,emissive:0xffffff,emissiveMap:backTexture,emissiveIntensity:.16});
   insideMaterial=new THREE.MeshStandardMaterial({color:'#e7e1d4',roughness:1});
   clothMaterial=new THREE.MeshStandardMaterial({color:'#e5dfd3',bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
   edgeMaterial=new THREE.MeshStandardMaterial({map:edgeTexture,roughness:1});
@@ -138,6 +147,9 @@ function rebuildBook(){
   if(state.flip){removeFlip();state.isMoving=false;}
   if(bookMechanics)bookMechanics.dispose();
   const d=dims();geometryParams=d;
+  const newSpine=canvasTexture(makeSpine(spineArtOptions()));
+  if(spineTexture)spineTexture.dispose();
+  spineTexture=newSpine;spineMaterial.map=spineTexture;
   bookMechanics=new HardcoverMechanics({
     root:bookRoot,
     dimensions:d,
@@ -219,17 +231,19 @@ function updateStats(){
 }
 function applyCover() {
   const freshFront=canvasTexture(makeFrontCover(state));
-  const freshSpine=canvasTexture(makeSpine(state));
+  const freshSpine=canvasTexture(makeSpine(spineArtOptions()));
   const freshBack=canvasTexture(makeBack(state));
   if(coverTexture)coverTexture.dispose();
   if(spineTexture)spineTexture.dispose();
   if(backTexture)backTexture.dispose();
   coverTexture=freshFront;spineTexture=freshSpine;backTexture=freshBack;
-  frontMaterial.map=coverTexture;frontMaterial.emissiveMap=coverTexture;spineMaterial.map=spineTexture;backMaterial.map=backTexture;
+  frontMaterial.map=coverTexture;frontMaterial.emissiveMap=coverTexture;spineMaterial.map=spineTexture;backMaterial.map=backTexture;backMaterial.emissiveMap=backTexture;
   frontMaterial.needsUpdate=true;spineMaterial.needsUpdate=true;backMaterial.needsUpdate=true;
   if(state.coverUpload)frontMaterial.map=state.coverUpload;
   if(bookMechanics){
+    bookMechanics.materials.spine=spineTexture;
     bookMechanics.spine.material.map=spineTexture;
+    bookMechanics.spine.material.emissiveMap=spineTexture;
     bookMechanics.spine.material.needsUpdate=true;
   }
   renderDirty=true;

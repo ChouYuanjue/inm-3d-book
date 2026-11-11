@@ -18,7 +18,7 @@ The studio uses the current compiled **1,248-page PDF**, rather than splitting t
 - Customize the cover title, author, and blue ink; upload a replacement front-cover image or PDF.
 - Import a different reading-copy PDF locally, or download a PNG render of the physical book.
 
-The default front cover and spine use perspective-corrected artwork extracted directly from the supplied ivory-and-blue book photograph, preserving its lettering, emblem and cloth texture. The case joints use continuous cloth surfaces; the back uses blank matching cloth.
+The default front cover and spine use perspective-corrected artwork extracted directly from the supplied ivory-and-blue book photograph, preserving its lettering, emblem and cloth texture. The case spine has an exterior print surface, an unprinted inner lining and sealed rims. Its paper block follows the rounded back and matching hollow fore-edge. Spine artwork is laid out at equal physical pixel density to preserve lettering proportions as page count changes; all case faces share the same ivory cloth base. The back has a coordinated blue-and-black introduction.
 
 ## Development
 

@@ -120,27 +120,58 @@ export function makeFrontCover({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#
   ctx.fillText('An independent mathematical notebook',86,1595);
   return c;
 }
-export function makeSpine({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a'}={}) {
-  if(isReference(title,author,ink))return referenceCanvas('spine',340,1700);
+const referenceSpineInk=new Map();
+function spineInk(ink='#07508a'){
+  if(referenceSpineInk.has(ink))return referenceSpineInk.get(ink);
+  const rgb=[1,3,5].map(i=>parseInt(ink.slice(i,i+2),16));
   const c=canvas(340,1700),ctx=c.getContext('2d');
-  paper(ctx,c.width,c.height);
-  // Hinged bookcloth relief near either edge.
-  const ridge=ctx.createLinearGradient(0,0,c.width,0);
-  ridge.addColorStop(0,'rgba(92,82,60,.11)');
-  ridge.addColorStop(.12,'rgba(255,255,255,.10)');
-  ridge.addColorStop(.89,'rgba(255,255,255,.055)');
-  ridge.addColorStop(1,'rgba(72,62,52,.16)');
-  ctx.fillStyle=ridge;ctx.fillRect(0,0,c.width,c.height);
-  smallSeal(ctx,c.width/2,130,55,ink);
-  ctx.save();ctx.translate(178,350);ctx.rotate(Math.PI/2);
-  ctx.fillStyle='#17191a';ctx.font='bold 49px Arial,Helvetica,sans-serif';
-  ctx.fillText(title,0,0,820);
-  ctx.strokeStyle='#4a514f';ctx.lineWidth=2;
-  ctx.beginPath();ctx.moveTo(0,30);ctx.lineTo(790,30);ctx.stroke();
-  ctx.font='bold 29px Arial,Helvetica,sans-serif';ctx.fillText(author,26,72,660);
-  ctx.restore();
-  smallSeal(ctx,c.width/2,1517,34,'#272e32');
-  ctx.font='bold 24px Georgia,serif';ctx.textAlign='center';ctx.fillStyle='#27353b';ctx.fillText('INM',c.width/2,1590);
+  ctx.drawImage(referenceArtwork.spine,0,0,340,1700);
+  const pixels=ctx.getImageData(0,0,340,1700);
+  for(let k=0;k<pixels.data.length;k+=4){
+    const r=pixels.data[k],g=pixels.data[k+1],b=pixels.data[k+2];
+    const blue=b>r+22&&g>r+8;
+    const lum=.2126*r+.7152*g+.0722*b;
+    const alpha=blue?Math.min(1,(b-r)/95):Math.max(0,Math.min(1,(170-lum)/105));
+    pixels.data[k]=blue?rgb[0]:17;pixels.data[k+1]=blue?rgb[1]:19;
+    pixels.data[k+2]=blue?rgb[2]:18;pixels.data[k+3]=Math.round(alpha*255);
+  }
+  ctx.putImageData(pixels,0,0);referenceSpineInk.set(ink,c);return c;
+}
+export function makeSpine({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a',spineAspect=.20}={}) {
+  // Equal pixel density along and across the actual curved spine. Ink
+  // elements retain their aspect ratio when the binding gets thicker.
+  const h=1700,w=Math.max(16,Math.round(h*spineAspect));
+  const c=canvas(w,h),ctx=c.getContext('2d');
+  ctx.drawImage(referenceArtwork.front,40,450,280,250,0,0,w,h);
+  const art=spineInk(ink);
+  function place(sx,sy,sw,sh,desiredWidth,y){
+    const width=Math.min(desiredWidth,w*.64),height=width*sh/sw;
+    ctx.drawImage(art,sx,sy,sw,sh,(w-width)/2,y,width,height);
+    return {width,height};
+  }
+  place(88,55,165,150,145,65);
+  const titleSize=place(128,235,78,700,70,260);
+  if(title!==DEFAULT_TITLE){
+    ctx.drawImage(referenceArtwork.front,40,450,280,250,0,230,w,790);
+    ctx.save();ctx.translate(w/2,260);ctx.rotate(Math.PI/2);
+    let size=Math.min(60,w*.58);ctx.font='bold '+size+'px Arial, sans-serif';
+    while(ctx.measureText(title).width>710&&size>8){size-=1;ctx.font='bold '+size+'px Arial, sans-serif';}
+    ctx.fillStyle='#111312';ctx.fillText(title,0,size*.34);ctx.restore();
+  }
+  ctx.strokeStyle='#30352f';ctx.lineWidth=1.5;
+  const lineWidth=Math.min(110,w*.48);
+  ctx.beginPath();ctx.moveTo((w-lineWidth)/2,1010);ctx.lineTo((w+lineWidth)/2,1010);ctx.stroke();
+  if(author==='Runnel Zhang')place(128,978,78,265,52,1060);
+  else{
+    ctx.save();ctx.translate(w/2,1060);ctx.rotate(Math.PI/2);
+    let size=Math.min(42,w*.48);ctx.font='bold '+size+'px Arial, sans-serif';
+    while(ctx.measureText(author).width>300&&size>8){size-=1;ctx.font='bold '+size+'px Arial, sans-serif';}
+    ctx.fillStyle='#111312';ctx.fillText(author,0,size*.34);ctx.restore();
+  }
+  place(110,1490,120,165,102,1480);
+  c.dataset.spineAspect=String(spineAspect);
+  c.dataset.titleAspect=String(titleSize.width/titleSize.height);
+  c.dataset.titleWidth=String(titleSize.width);
   return c;
 }
 export function makeBack({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a'}={}) {

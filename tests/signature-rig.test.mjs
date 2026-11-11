@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SignatureRig,LEAVES_PER_SIGNATURE,frontCoverYaw} from '../src/signature-rig.js';
-import {spineGeometry,updateSpine,createPageGeometry,updatePage} from '../src/binding.js';
+import {spineGeometry,updateSpine,createPageGeometry,updatePage,closedPaperPoint,closedPaperGeometry,spineRimGeometry,updateSpineShell} from '../src/binding.js';
 import * as THREE from 'three';
 const dims={w:2.7,h:3.82,t:624*.1*2.7/210,board:2.4*2.7/210,overhang:3.2*2.7/210};
 
@@ -159,9 +159,9 @@ test('case cloth bows out of the open book without pulling its cover joints inwa
   for(const angle of [105,120,145]){
     const r=new SignatureRig(dims,1248,312,1,angle);
     const center=r.spinePoint(.5),left=r.spinePoint(0),right=r.spinePoint(1);
-    assert.ok(center.z<Math.min(left.z,right.z)-.12,
+    assert.ok(center.z<Math.min(left.z,right.z)-.03,
       'the exterior spine must have an outward belly, below both cover joints');
-    assert.ok(r.hingeAtFraction(.5).z-center.z>.35,
+    assert.ok(r.hingeAtFraction(.5).z-center.z>.08 && r.hingeAtFraction(.5).z-center.z<dims.t*.25,
       'the exterior case must stay outside the sewn textblock');
     assert.ok(Math.abs(r.spinePoint(0).x-r.getBoardAnchor('left').x)<.018);
     assert.ok(Math.abs(r.spinePoint(1).x-r.getBoardAnchor('right').x)<.018);
@@ -294,7 +294,7 @@ test('case spine stays convex to the exterior through opening at both ends and t
       for(const s of [.1,.25,.5,.75,.9]){
         const p=rig.spinePoint(s);
         const displacement=(p.x-(a.x+(b.x-a.x)*s))*nx+(p.z-(a.z+(b.z-a.z)*s))*nz;
-        assert.ok(displacement>.025,
+        assert.ok(displacement>dims.t*.01,
           'exterior case must bulge away from the book: spread='+spread+' q='+q+' s='+s);
       }
     }
@@ -334,5 +334,48 @@ test('thin piles clear the inside cover continuously, including the gutter',()=>
         assert.ok(clearance>.002,'paper must clear its cover near the binding and across its width');
       }
     }
+  }
+});
+
+function edgeCounts(geometries){
+  const edges=new Map();
+  const key=(p,k)=>[p.getX(k),p.getY(k),p.getZ(k)].map(x=>Math.round(x*1e5)).join(',');
+  for(const g of geometries){
+    const p=g.attributes.position,ix=g.index;
+    for(let k=0;k<ix.count;k+=3)for(let e=0;e<3;e++){
+      const a=key(p,ix.getX(k+e)),b=key(p,ix.getX(k+(e+1)%3));
+      if(a===b)continue;const edge=a<b?a+'|'+b:b+'|'+a;
+      edges.set(edge,(edges.get(edge)||0)+1);
+    }
+  }
+  return [...edges.values()];
+}
+test('spine is a closed shell with a blank inner face and finite material thickness',()=>{
+  for(const spread of [0,5,312,619])for(const q of [0,.5,1]){
+    const rig=new SignatureRig(dims,1248,spread,q,120);
+    const outer={geometry:spineGeometry(dims.h,true)},inner={geometry:spineGeometry(dims.h,false)};
+    const rims={geometry:spineRimGeometry()},thickness=dims.board*.82;
+    updateSpine(outer,rig,dims.h,dims.overhang);
+    updateSpineShell(outer,inner,rims,thickness);
+    const a=outer.geometry.attributes.position,b=inner.geometry.attributes.position;
+    for(let k=0;k<a.count;k+=23){
+      assert.ok(Math.abs(Math.hypot(a.getX(k)-b.getX(k),a.getY(k)-b.getY(k),a.getZ(k)-b.getZ(k))-thickness)<1e-6);
+    }
+    assert.ok(edgeCounts([outer.geometry,inner.geometry,rims.geometry]).every(n=>n===2),'every shell edge must have two adjoining faces');
+    [outer,inner,rims].forEach(m=>m.geometry.dispose());
+  }
+});
+test('closed rounded textblock reaches into the spine and has a corresponding hollow fore-edge',()=>{
+  for(const board of [dims.board,.45*2.7/210]){
+    const d={...dims,board},rig=new SignatureRig(d,1248,0,0,120);
+    for(const s of [.1,.25,.5,.75,.9]){
+      const back=closedPaperPoint(d,s,0,.5),fore=closedPaperPoint(d,s,1,.5),spine=rig.spinePoint(s);
+      assert.ok(back.x<-.045 && fore.x<d.w-.018);
+      const gap=back.x-spine.x;
+      assert.ok(gap>0 && gap<board+.025,'closed paper must occupy the rounded back instead of leaving a large hollow');
+    }
+    const geometry=closedPaperGeometry(d);
+    assert.ok(edgeCounts([geometry]).every(n=>n===2),'textblock must have no open boundary');
+    geometry.dispose();
   }
 });

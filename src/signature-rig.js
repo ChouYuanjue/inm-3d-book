@@ -103,7 +103,7 @@ export class SignatureRig {
     // it must not sag down into the case's U. The sewn folds distribute
     // across this concave (when viewed from the open book) back arc.
     // Book Conservation literature calls this the "throw-up" of the spine.
-    const rise=.54+.12*Math.sin(pi*this.position);
+    const rise=.24+.06*Math.sin(pi*this.position);
     const fullyOpenZ=this.spineBase+this.radius*rise*Math.cos(phase);
     // Opening ONE page does not move all 39 gatherings into an open U.
     // The spine stays nearly in its closed cross-sectional configuration
@@ -136,8 +136,9 @@ export class SignatureRig {
     // of the inward arch of the sewn paper. Transport its convex belly
     // with the case as the book rolls, including the final few leaves.
     const left=this.hingeAtFraction(0),right=this.hingeAtFraction(1);
-    const belly=(this.d.t*(.16+.10*this.spineEngagement*this.q)+.013)*Math.sin(pi*s);
-    const offset=.047+belly;
+    const belly=(this.d.t*(.16-.095*this.spineEngagement*this.q)+.008)*Math.sin(pi*s);
+    const skin=Math.max(.012,Math.min(.032,this.d.board*.9+.006));
+    const offset=skin+belly;
     return {
       x:lerp(left.x,right.x,s)+normalX*offset,
       z:lerp(left.z,right.z,s)+normalZ*offset
@@ -160,7 +161,8 @@ export class SignatureRig {
     let openRootZ=p.openZ;
     let openForeZ=-t/2+layer*this.caliper+rising+boardSupport;
     const closedForeZ=t/2-(idx+.5)*this.caliper;
-    const closedX=lerp(p.closedX,w-.018,U);
+    const edgeInset=t*.16*Math.sin(pi*(idx+.5)/this.total);
+    const closedX=lerp(p.closedX,w-.018-edgeInset,U);
     // Page width is projected into the V of its supporting cover.
     // Previously the cover rotated but the paper extended horizontally
     // at FULL width, so the board cut THROUGH the page near its center.
