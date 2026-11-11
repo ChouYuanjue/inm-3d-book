@@ -159,7 +159,7 @@ function updatePage(mesh,rig,side){
   mesh.geometry.computeVertexNormals();
   mesh.geometry.computeBoundingSphere();
 }
-function spineGeometry(h){
+export function spineGeometry(h,exterior=false){
   const nu=100,nv=4;
   const positions=new Float32Array((nu+1)*(nv+1)*3);
   const uv=new Float32Array((nu+1)*(nv+1)*2);
@@ -169,7 +169,11 @@ function spineGeometry(h){
     uv[k*2]=i/nu;uv[k*2+1]=j/nv;
     if(i<nu&&j<nv){
       const a=k,b=k+1,c=k+nu+2,d=k+nu+1;
-      indices.push(a,b,c,a,c,d);
+      // u follows the spine from board to board, v follows its height.
+      // The exterior cloth must face AWAY from the page block. Keeping
+      // the former +Z winding gave the outward spine an inside-out face.
+      if(exterior)indices.push(a,c,b,a,d,c);
+      else indices.push(a,b,c,a,c,d);
     }
   }
   const g=new THREE.BufferGeometry();
@@ -179,7 +183,7 @@ function spineGeometry(h){
   g.userData={nu,nv};
   return g;
 }
-function updateSpine(mesh,rig,h,overhang){
+export function updateSpine(mesh,rig,h,overhang){
   const g=mesh.geometry,p=g.attributes.position;
   const {nu,nv}=g.userData;
   for(let j=0;j<=nv;j++)for(let i=0;i<=nu;i++){
@@ -430,7 +434,7 @@ export class HardcoverMechanics{
 
     // Case cloth is ONE continuous strip in all poses. It follows the bound
     // gathering hinges but never opens into a pair of book-page wings.
-    this.spineGeometry=spineGeometry(h);
+    this.spineGeometry=spineGeometry(h,true);
     this.spine=this.make(this.spineGeometry,
       this.own(mat(0xffffff,{map:m.spine,side:THREE.DoubleSide,bumpMap:m.clothBump||null,bumpScale:.001})));
     this.sewnBacking=this.make(spineGeometry(h),

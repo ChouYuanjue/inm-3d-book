@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SignatureRig,LEAVES_PER_SIGNATURE} from '../src/signature-rig.js';
+import {spineGeometry,updateSpine} from '../src/binding.js';
 const dims={w:2.7,h:3.82,t:624*.1*2.7/210,board:2.4*2.7/210,overhang:3.2*2.7/210};
 
 test('1,248 pages make 39 nonzero-thickness sewn gatherings',()=>{
@@ -96,6 +97,47 @@ test('sewn textblock arches above, separate hollow case spine droops below',()=>
   const caseRight=rig.spinePoint(1).z;
   assert.ok(caseCenter<caseLeft&&caseCenter<caseRight);
   assert.ok(middle-caseCenter>.12);
+});
+
+test('case cloth bows out of the open book without pulling its cover joints inward',()=>{
+  for(const angle of [105,120,145]){
+    const r=new SignatureRig(dims,1248,312,1,angle);
+    const center=r.spinePoint(.5),left=r.spinePoint(0),right=r.spinePoint(1);
+    assert.ok(center.z<Math.min(left.z,right.z)-.12,
+      'the exterior spine must have an outward belly, below both cover joints');
+    assert.ok(r.hingeAtFraction(.5).z-center.z>.35,
+      'the exterior case must stay outside the sewn textblock');
+    assert.ok(Math.abs(r.spinePoint(0).x-r.getBoardAnchor('left').x)<.018);
+    assert.ok(Math.abs(r.spinePoint(1).x-r.getBoardAnchor('right').x)<.018);
+  }
+});
+
+test('spine retains its finite cross-section even during end-page opening',()=>{
+  for(const spread of [0,1,312,623,624]){
+    for(const q of [0,.25,.50,.75,1]){
+      const r=new SignatureRig(dims,1248,spread,q,120);
+      const a=r.hingeAtFraction(0),b=r.hingeAtFraction(1);
+      assert.ok(Math.hypot(a.x-b.x,a.z-b.z)>.45*dims.t,
+        'the back may rotate but cannot collapse: spread='+spread+' q='+q);
+    }
+  }
+});
+
+test('exterior spine mesh normals face away from the signatures through opening',()=>{
+  for(const spread of [1,312,623])for(const q of [0,.25,.50,.75,1]){
+    const r=new SignatureRig(dims,1248,spread,q,120);
+    const g=spineGeometry(dims.h,true);
+    updateSpine({geometry:g},r,dims.h,dims.overhang);
+    const k=2*(g.userData.nu+1)+g.userData.nu/2;
+    const normal=g.attributes.normal;
+    const outer=r.spinePoint(.5),inner=r.hingeAtFraction(.5);
+    const towardsOutside=normal.getX(k)*(outer.x-inner.x)+
+      normal.getZ(k)*(outer.z-inner.z);
+    assert.ok(towardsOutside>.025,
+      'cloth must face the exterior, not be wound inside-out: q='+q+' dot='+towardsOutside+
+      ' normal=('+normal.getX(k)+','+normal.getZ(k)+') delta=('+[outer.x-inner.x,outer.z-inner.z]+')');
+    g.dispose();
+  }
 });
 
 test('curled page has a finite, non-cusped inward shoulder',()=>{

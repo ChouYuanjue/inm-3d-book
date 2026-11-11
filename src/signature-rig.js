@@ -80,11 +80,13 @@ export class SignatureRig {
     // CLOSED: convex round-back spine, signatures run from top to bottom
     // along the same outside curvature as the closed exterior cloth case.
     const cx=-.045-t*.16*Math.sin(pi*s);
-    // As pages accumulate on the LEFT, the bulk stack changes its
-    // supported face. First and final spreads are mirror situations:
-    // the first right recto and last left verso both sit on TOP of the
-    // remaining textblock, not down at a zero-height fold.
-    const cz=t*(.5-s)*Math.cos(pi*this.position);
+    // The CLOSED book always has its full back thickness. Multiplying
+    // this by cos(pi*pagePosition) previously collapsed the whole spine
+    // to a zero-thickness ridge at the middle of the manuscript, which
+    // reversed its surface normal during opening and looked like an
+    // inward-folding spine. Page position changes the OPEN fan instead.
+    const cz=t*(.5-s);
+    const supportedOpenZ=cz*Math.cos(pi*this.position);
     // OPEN: bend around a moving neutral arc, not a common zero-thickness
     // hinge. Early pages lean to the right, late pages lean to the left.
     const phase=this.angularSpread*(s-this.position);
@@ -99,9 +101,15 @@ export class SignatureRig {
     // The spine stays nearly in its closed cross-sectional configuration
     // near the covers; a pronounced throw-up emerges near the middle.
     const ox=lerp(cx,fullyOpenX,this.spineEngagement);
-    const oz=lerp(cz,fullyOpenZ,this.spineEngagement);
+    const oz=lerp(supportedOpenZ,fullyOpenZ,this.spineEngagement);
+    // Near the last pages the closed and supported-open stacks have
+    // opposite front-to-back orders. Interpolating those coordinates
+    // directly flattens the entire back to a line halfway through the
+    // opening. Sweep its thickness around the hinge instead.
+    const roll=pi*this.position*this.q;
+    const turnX=-cz*Math.sin(roll)*(1-this.spineEngagement);
     return {
-      x:lerp(cx,ox,this.q),
+      x:lerp(cx,ox,this.q)+turnX,
       z:lerp(cz,oz,this.q),
       closedX:cx,closedZ:cz,openX:ox,openZ:oz
     };
@@ -114,18 +122,22 @@ export class SignatureRig {
   }
   spinePoint(s){
     const h=this.hingeAtFraction(s);
-    const outwardClosed=.047+.013*Math.sin(pi*s);
-    // The independent HOLLOW CASE back stays low and curves in the
-    // opposite direction. The gap below the raised textblock is real space
-    // between two different surfaces, not a zero-thickness wedge.
+    const shoulder=Math.sin(pi*s);
+    const engagement=this.spineEngagement*this.q;
+    // Transport the case's exterior normal along the same continuous
+    // roll as the gathering roots. Closed: -X; open middle: -Z;
+    // open at the last pages: +X. The cloth never switches inside/out.
+    const roll=pi*this.position*this.q;
+    const normalX=-Math.cos(roll),normalZ=-Math.sin(roll);
+    const skin=.047+.013*shoulder;
+    const outwardGap=skin+engagement*(.015+.32*shoulder*shoulder);
+    // A small lateral shoulder flare keeps the exterior shell clear of
+    // the sewing roots, but leaves the two cover attachment ends fixed.
     const phase=this.angularSpread*(s-this.position);
-    const hollowZ=this.spineBase-.057+
-      this.radius*.40*(1-Math.cos(phase));
+    const flare=this.radius*.11*Math.sin(phase)*shoulder*engagement;
     return {
-      x:lerp(h.closedX-outwardClosed,
-        h.openX-.047*(1-this.spineEngagement),this.q),
-      z:lerp(h.closedZ,
-        lerp(h.closedZ,hollowZ,this.spineEngagement),this.q)
+      x:h.x+normalX*outwardGap+flare,
+      z:h.z+normalZ*outwardGap
     };
   }
   /** x,y,z surface location for a *physical* sheet, in book coordinates. */
@@ -170,8 +182,11 @@ export class SignatureRig {
     const closedZ=lerp(p.closedZ,closedForeZ,U);
     const y=(V-.5)*(h-.072);
     const irregularity=this.q*.0012*Math.sin(idx*.87+V*13)*Math.sin(pi*U);
+    // Use the same finite-thickness spine roll for each leaf's root;
+    // its contribution dies away at the fore-edge (U=1).
+    const rootRoll=p.x-lerp(p.closedX,p.openX,this.q);
     return {
-      x:lerp(closedX,openX,this.q)+irregularity*U,
+      x:lerp(closedX,openX,this.q)+rootRoll*(1-U)+irregularity*U,
       y,z:lerp(closedZ,openZ,this.q)
     };
   }
