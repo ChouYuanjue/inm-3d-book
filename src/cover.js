@@ -144,13 +144,31 @@ export function makeBack({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a
 }
 export function makeEdge() {
   const c=canvas(160,2048),ctx=c.getContext('2d');
-  ctx.fillStyle='#e0d9ca';ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle='#f0ece3';ctx.fillRect(0,0,c.width,c.height);
   let v=98;
   const rand=()=>{v=(v*1103515245+12345)>>>0;return v/4294967296;};
   for(let y=0;y<c.height;y+=3){
-    const a=.035+rand()*.18;ctx.fillStyle='rgba(95,91,77,'+a+')';ctx.fillRect(0,y,c.width,rand()>.5?1:2);
+    const a=.045+rand()*.14;ctx.fillStyle='rgba(106,101,89,'+a+')';ctx.fillRect(0,y,c.width,rand()>.5?1:2);
   }
   for(let i=0;i<55;i++){ctx.strokeStyle='rgba(255,255,255,.16)';ctx.beginPath();const y=rand()*c.height;ctx.moveTo(0,y);ctx.lineTo(c.width,y);ctx.stroke();}
+  return c;
+}
+// Small deterministic height map to give the simulated clothbound covers
+// a gently woven surface in studio light. Not an AI-generated image.
+export function makeClothBump(){
+  const c=canvas(512,512),ctx=c.getContext('2d');
+  const data=ctx.createImageData(512,512);
+  let seed=9071993;
+  for(let y=0;y<512;y++)for(let x=0;x<512;x++){
+    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+    const grain=(seed/4294967296-.5)*7;
+    const warp=Math.sin(x*1.42)*Math.cos(y*1.31)*17;
+    const weft=Math.sin(y*1.54)*Math.cos(x*1.27)*12;
+    const n=Math.min(255,Math.max(0,Math.round(129+warp+weft+grain)));
+    const k=(y*512+x)*4;
+    data.data[k]=n;data.data[k+1]=n;data.data[k+2]=n;data.data[k+3]=255;
+  }
+  ctx.putImageData(data,0,0);
   return c;
 }
 export function makePlaceholder(text='INM') {

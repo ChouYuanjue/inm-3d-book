@@ -8,4 +8,6 @@ qa-*.png
 small-qa-*.png
 view-qa-*.png
 look-qa-*.jpg
+preview-qa-*.jpg
+preview-head-*.jpg
 __pycache__/

@@ -3,12 +3,12 @@ import './upgrades.css';
 import './binding-upgrades.css';
 import { initBookOutline } from './toc.js';
 import { createPageInspector } from './inspector.js';
-import { HardcoverMechanics, topProfile } from './binding.js';
+import { HardcoverMechanics } from './binding.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import {makeFrontCover, makeSpine, makeBack, makeEdge, makePlaceholder} from './cover.js';
+import {makeFrontCover, makeSpine, makeBack, makeEdge, makePlaceholder, makeClothBump} from './cover.js';
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 const $ = id => document.getElementById(id);
@@ -36,11 +36,13 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.8));
 renderer.setSize(host.clientWidth||1000,host.clientHeight||720);
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure=1.12;
-renderer.shadowMap.enabled=true;
+renderer.toneMappingExposure=0.98;
+renderer.shadowMap.enabled=false; // soft contact shadow is cheaper and cleaner for this viewer
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 host.appendChild(renderer.domElement);
+let renderDirty=true;
 const controls=new OrbitControls(camera,renderer.domElement);
+controls.addEventListener('change',()=>{renderDirty=true;});
 controls.enableDamping=true;controls.dampingFactor=.055;
 controls.enablePan=false;controls.minDistance=3.3;controls.maxDistance=35;
 controls.maxPolarAngle=Math.PI*.91;
@@ -49,22 +51,38 @@ camera.position.set(-3.15,1.38,7.85);
 controls.target.set(-.13,.03,0);
 controls.update();
 
-const ambient=new THREE.HemisphereLight(0xfffcf5,0xb7bbbd,1.25);scene.add(ambient);
-const key=new THREE.DirectionalLight(0xffffff,2.35);
+const ambient=new THREE.HemisphereLight(0xfffcf5,0xb7bbbd,.85);scene.add(ambient);
+const key=new THREE.DirectionalLight(0xffffff,1.7);
 key.position.set(-3.4,7.5,8.2);
 key.castShadow=true;
 key.shadow.mapSize.set(2048,2048);
 key.shadow.camera.left=-9;key.shadow.camera.right=9;key.shadow.camera.top=9;key.shadow.camera.bottom=-9;
 key.shadow.bias=-.00013;key.shadow.normalBias=.012;
 scene.add(key);
-const fill=new THREE.DirectionalLight(0xe4eefa,.72);fill.position.set(6,3,-5);scene.add(fill);
-const side=new THREE.DirectionalLight(0xfff2e0,.37);side.position.set(-6,3,-2);scene.add(side);
-const floor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.ShadowMaterial({opacity:.13}));
+const fill=new THREE.DirectionalLight(0xe4eefa,.48);fill.position.set(6,3,-5);scene.add(fill);
+const side=new THREE.DirectionalLight(0xfff2e0,.34);side.position.set(-6,3,-2);scene.add(side);
+const cutLight=new THREE.DirectionalLight(0xfff6e9,.78);cutLight.position.set(.2,3.2,-7);scene.add(cutLight);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.ShadowMaterial({opacity:.065}));
 floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;floor.position.y=-1.94;scene.add(floor);
+// A low-frequency contact shadow complements the physically cast shadows and
+// removes the disconnected "floating product mockup" appearance.
+const contactShadowCanvas=document.createElement('canvas');
+contactShadowCanvas.width=256;contactShadowCanvas.height=256;
+const shadowCtx=contactShadowCanvas.getContext('2d');
+const shadowGrad=shadowCtx.createRadialGradient(128,128,7,128,128,125);
+shadowGrad.addColorStop(0,'rgba(34,36,32,.20)');
+shadowGrad.addColorStop(.42,'rgba(42,44,40,.10)');
+shadowGrad.addColorStop(1,'rgba(46,47,43,0)');
+shadowCtx.fillStyle=shadowGrad;shadowCtx.fillRect(0,0,256,256);
+const contactTexture=new THREE.CanvasTexture(contactShadowCanvas);
+const contactShadow=new THREE.Mesh(new THREE.PlaneGeometry(6,5),
+  new THREE.MeshBasicMaterial({map:contactTexture,transparent:true,depthWrite:false,opacity:.90}));
+contactShadow.rotation.x=-Math.PI/2;contactShadow.position.set(0,floor.position.y+.003,0);
+contactShadow.renderOrder=0;scene.add(contactShadow);
 
 const bookRoot=new THREE.Group();scene.add(bookRoot);
 let parts=null,geometryParams=null,bookMechanics=null;
-let coverTexture,spineTexture,backTexture,edgeTexture,placeholderTexture;
+let coverTexture,spineTexture,backTexture,edgeTexture,placeholderTexture,clothBump;
 let frontMaterial,spineMaterial,backMaterial,insideMaterial,clothMaterial,edgeMaterial;
 let motion=null,cameraMotion=null;
 let inspector=null;
@@ -85,11 +103,14 @@ function makeMats() {
   backTexture=canvasTexture(makeBack(state));
   edgeTexture=canvasTexture(makeEdge());
   placeholderTexture=canvasTexture(makePlaceholder());
-  frontMaterial=new THREE.MeshStandardMaterial({map:coverTexture,roughness:.94,metalness:0});
-  spineMaterial=new THREE.MeshStandardMaterial({map:spineTexture,roughness:.94,metalness:0});
-  backMaterial=new THREE.MeshStandardMaterial({map:backTexture,roughness:.93,metalness:0});
+  clothBump=canvasTexture(makeClothBump());
+  clothBump.wrapS=THREE.RepeatWrapping;clothBump.wrapT=THREE.RepeatWrapping;
+  clothBump.repeat.set(4,4);
+  frontMaterial=new THREE.MeshStandardMaterial({map:coverTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.91,metalness:0});
+  spineMaterial=new THREE.MeshStandardMaterial({map:spineTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
+  backMaterial=new THREE.MeshStandardMaterial({map:backTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
   insideMaterial=new THREE.MeshStandardMaterial({color:'#e7e1d4',roughness:1});
-  clothMaterial=new THREE.MeshStandardMaterial({color:'#e5dfd0',roughness:.96,metalness:0});
+  clothMaterial=new THREE.MeshStandardMaterial({color:'#e5dfd3',bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
   edgeMaterial=new THREE.MeshStandardMaterial({map:edgeTexture,roughness:1});
 }
 makeMats();
@@ -133,19 +154,26 @@ function rebuildBook(){
     spine:bookMechanics.spine
   };
   floor.position.y=-d.h/2-d.overhang-.024;
+  contactShadow.position.y=floor.position.y+.003;
+  contactShadow.scale.x=state.open?1.22:.52;
+  contactShadow.scale.y=state.open?1.10:.48;
   setStacks();
   showPages(state.open);
   updateStats();
+  renderDirty=true;
 }
 function showPages(open){
   if(!parts)return;
   bookMechanics.render(state.coverProgress,state.spread,state.sourcePages,state.pages,state.openAngle);
+  if(!motion){contactShadow.scale.x=open?1.22:.52;contactShadow.scale.y=open?1.10:.48;}
   $('readerNavigation').hidden=!open;
   $('sceneWrap').classList.toggle('is-reading',open);
+  renderDirty=true;
 }
 function setStacks(){
   if(!bookMechanics)return;
   bookMechanics.render(state.coverProgress,state.spread,state.sourcePages,state.pages,state.openAngle);
+  renderDirty=true;
 }
 function updateStats(){
   const d=geometryParams||dims();
@@ -190,6 +218,7 @@ function applyCover() {
     bookMechanics.spine.material.map=spineTexture;
     bookMechanics.spine.material.needsUpdate=true;
   }
+  renderDirty=true;
   updateStats();
 }
 function showLoading(message,short=false){
@@ -200,6 +229,7 @@ function setTextureOn(mesh,tex){
   if(!mesh||!mesh.material)return;
   mesh.material.map=tex||placeholderTexture;
   mesh.material.needsUpdate=true;
+  renderDirty=true;
 }
 function loadPdf(input){
   pageCache.forEach(p=>p.then(t=>{if(t&&t!==placeholderTexture)t.dispose();}).catch(()=>{}));
@@ -280,7 +310,10 @@ function setCover(open){
   state.open=open;state.isMoving=true;
   state.coverTarget=open?1:0;
   state.spread=open?state.spread:0;
-  if(!open){state.spread=0;state.currentPage=1;showPages(false);}
+  if(!open){
+    $('readerNavigation').hidden=true;
+    $('sceneWrap').classList.remove('is-reading');
+  }
   motion={kind:'cover',from:state.coverProgress,to:state.coverTarget,start:performance.now(),duration:850};
   $('openBook').innerHTML=open?'Close the book <span>×</span>':'Open the book <span>↗</span>';
   if(open){setSpread(state.spread);focusView('read');}
@@ -330,12 +363,10 @@ async function flipPage(dir){
     bookRoot.add(group);
     if(dir>0)setTextureOn(parts.rightPage,under);
     else setTextureOn(parts.leftPage,under);
-    const theta=THREE.MathUtils.degToRad((180-state.openAngle)/2);
     const f={
-      group,geometry,basePositions,frontMat,backMat,from:dir>0?-theta:theta,
-      to:dir>0?-Math.PI+theta:Math.PI-theta,
-      fromTop:previousTop,toTop:futureTop,
-      thickness:dir>0?t*(1-oldSpread*2/state.sourcePages):t*(oldSpread*2/state.sourcePages),
+      group,geometry,basePositions,frontMat,backMat,from:0,
+      to:dir>0?-Math.PI:Math.PI,
+      fromTop:previousTop,toTop:futureTop,oldSpread,nextSpread:next,
       dir,start:performance.now(),duration:760
     };
     state.flip=f;showLoading('');
@@ -349,16 +380,21 @@ function animate(time){
   requestAnimationFrame(animate);
   const delta=clock.getDelta();
   if(motion){
+    renderDirty=true;
     const k=Math.min(1,(time-motion.start)/motion.duration),v=ease(k);
+    contactShadow.scale.x=THREE.MathUtils.lerp(motion.to? .52:1.22,motion.to?1.22:.52,v);
+    contactShadow.scale.y=THREE.MathUtils.lerp(motion.to? .48:1.10,motion.to?1.10:.48,v);
     state.coverProgress=motion.from+(motion.to-motion.from)*v;
     bookMechanics.render(state.coverProgress,state.spread,state.sourcePages,state.pages,state.openAngle);
     if(k>=1){
       const wasOpen=motion.to===1;
       motion=null;state.isMoving=false;showPages(wasOpen);
-      if(wasOpen)setSpread(state.spread);else updateStats();
+      if(wasOpen)setSpread(state.spread);
+      else {state.spread=0;state.currentPage=1;showPages(false);updateStats();}
     }
   }
   if(state.flip){
+    renderDirty=true;
     const f=state.flip;
     const k=Math.min(1,(time-f.start)/f.duration),v=ease(k);
     f.group.rotation.y=f.from+(f.to-f.from)*v;
@@ -368,8 +404,12 @@ function animate(time){
       const x=base[i*3],u=Math.min(1,Math.abs(x)/w);
       // Folded sheets bend most at mid-turn. The binding end follows the book's
       // actual top-of-gutter height and the outer edge gently curls.
-      const rest=f.thickness*(topProfile(u)-topProfile(0));
-      const curled=Math.sin(Math.PI*v)*(0.13+0.09*Math.min(1,geometryParams.t))
+      const fromSide=f.dir>0?'right':'left';
+      const toSide=f.dir>0?'left':'right';
+      const sourceHeight=bookMechanics.pageSurface(fromSide,f.oldSpread,state.sourcePages,u)-f.fromTop;
+      const targetHeight=bookMechanics.pageSurface(toSide,f.nextSpread,state.sourcePages,u)-f.toTop;
+      const rest=THREE.MathUtils.lerp(sourceHeight,targetHeight,v);
+      const curled=Math.sin(Math.PI*v)*(0.14+0.12*Math.min(1,geometryParams.t))
         *Math.sin(Math.PI*u);
       pos.setZ(i,rest+curled+Math.sin(u*10+v*7)*.003*Math.sin(Math.PI*v));
     }
@@ -380,21 +420,20 @@ function animate(time){
     }
   }
   if(cameraMotion){
+    renderDirty=true;
     const k=Math.min(1,(time-cameraMotion.start)/cameraMotion.duration),v=ease(k);
     camera.position.lerpVectors(cameraMotion.from,cameraMotion.to,v);
     controls.target.lerpVectors(cameraMotion.targetFrom,cameraMotion.targetTo,v);
     if(k>=1)cameraMotion=null;
   }
-  controls.update();
-  renderer.render(scene,camera);
+  const controlsChanged=controls.update();
+  if(renderDirty||controlsChanged){renderer.render(scene,camera);renderDirty=false;}
 }
 function focusView(view){
   document.querySelectorAll('.view-button').forEach(x=>x.classList.toggle('active',x.id==='view'+view[0].toUpperCase()+view.slice(1)));
   const d=geometryParams||dims();
   const opened=state.open;
-  const spreadFactor=(Math.max(105,Math.min(174,state.openAngle))-105)/69;
-  const lowestLocalZ=-d.t/2-d.board-.015-(d.t*.23+.038)*(1.20-.33*spreadFactor);
-  const worldRootY=-d.h/2-d.overhang-.02-lowestLocalZ;
+  const worldRootY=bookMechanics?.root.position.y||0;
   const target=opened?new THREE.Vector3(0,worldRootY+.18,0):new THREE.Vector3(0,.05,0);
   let destination;
   if(!opened){
@@ -404,10 +443,10 @@ function focusView(view){
   }else{
     // Look toward the head of the book so the bowed case spine, shoulders,
     // and two stacks are visible in cross-section rather than from overhead.
-    if(view==='spine')destination=new THREE.Vector3(-.3,worldRootY+.52,-6.75);
+    if(view==='spine')destination=new THREE.Vector3(-.55,worldRootY+1.45,-8.5);
     else if(view==='pages')destination=new THREE.Vector3(.2,worldRootY+8.5,2.0);
-    else if(view==='read')destination=new THREE.Vector3(-2.4,worldRootY+6.6,5.2);
-    else destination=new THREE.Vector3(-3.1,worldRootY+4.3,6.8);
+    else if(view==='read')destination=new THREE.Vector3(-1.8,worldRootY+5.9,4.6);
+    else destination=new THREE.Vector3(-2.3,worldRootY+4.8,5.8);
   }
   const width=host.clientWidth,height=host.clientHeight;
   if(width<760){
@@ -450,6 +489,7 @@ function navigateToPage(page,{fromInspector=false}={}){
     state.coverTarget=1;
     $('openBook').innerHTML='Close the book <span>×</span>';
     bookMechanics.render(1,state.spread,state.sourcePages,state.pages,state.openAngle);
+    contactShadow.scale.x=1.22;contactShadow.scale.y=1.10;
   }
   setSpread(Math.floor(n/2),n);
   showPages(true);
@@ -574,6 +614,7 @@ function bindUI(){
     camera.aspect=w/h;camera.updateProjectionMatrix();
     renderer.setSize(w,h,false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.8));
+    renderDirty=true;
     if(w<520 && !state.isMoving && camera.position.length()<10.5){
       camera.position.set(-3.8,1.7,11.8);
       controls.target.set(0,.02,0);
@@ -602,5 +643,6 @@ window.__INM_DEBUG__={
   state, dims, scene, renderer,
   open:()=>setCover(true),close:()=>setCover(false),
   next:()=>flipPage(1),previous:()=>flipPage(-1),
-  setPageCount,focusView,jump:navigateToPage,inspect:(n)=>inspector.open(n),pdf:()=>pdfDoc
+  setPageCount,focusView,jump:navigateToPage,inspect:(n)=>inspector.open(n),
+  mechanics:()=>bookMechanics,pdf:()=>pdfDoc
 };
