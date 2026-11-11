@@ -516,7 +516,7 @@ export class HardcoverMechanics{
     this.spine.material.color.set(q>.92?0xe4dacf:0xffffff);
     for(const hb of this.headbands){
       updateEndband(hb,rig);
-      hb.visible=rig.q<.08; // hidden in reading view
+      hb.visible=false; // Keep head/tail cloth free of artificial blue trim.
     }
     this.root.rotation.x=-q*Math.PI/2;
     this.root.position.x=-(1-q)*d.w/2;

@@ -143,9 +143,51 @@ export function makeSpine({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508
   ctx.font='bold 24px Georgia,serif';ctx.textAlign='center';ctx.fillStyle='#27353b';ctx.fillText('INM',c.width/2,1590);
   return c;
 }
-export function makeBack() {
+export function makeBack({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a'}={}) {
   const c=canvas(1200,1680),ctx=c.getContext('2d');
   ctx.drawImage(referenceArtwork.front,40,450,280,250,0,0,1200,1680);
+
+  // A restrained companion to the reference front: ivory cloth, blue ink,
+  // generous margins and a cropped impression of the same architectural seal.
+  ctx.save();
+  ctx.globalAlpha=.075;
+  ctx.drawImage(referenceArtwork.front,120,660,1040,920,310,790,950,840);
+  ctx.restore();
+
+  ctx.fillStyle=ink;
+  ctx.font='20px Arial, sans-serif';
+  ctx.fillText('INFORMAL NOTES',110,150);
+  ctx.fillStyle='#161918';
+  ctx.font='bold 53px "Times New Roman", serif';
+  const lines=fittedTitleLines(title);
+  lines.forEach((line,i)=>ctx.fillText(line,110,245+i*65,980));
+  const y=245+(lines.length-1)*65;
+  ctx.strokeStyle=ink;ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(110,y+52);ctx.lineTo(1090,y+52);ctx.stroke();
+
+  ctx.fillStyle=ink;
+  ctx.font='italic 37px "Times New Roman", serif';
+  ctx.fillText('Definitions. Examples. Proofs.',110,y+151);
+
+  ctx.fillStyle='#303632';
+  ctx.font='31px "Times New Roman", serif';
+  [
+    'A personal notebook of mathematical explorations:',
+    'ideas worked through in detail, examples followed',
+    'to their conclusions, and proofs unpacked step by step.',
+    '',
+    'Written for the pleasure of understanding,',
+    'and for the connections that appear along the way.'
+  ].forEach((line,i)=>ctx.fillText(line,110,y+250+i*49,980));
+
+  ctx.strokeStyle=ink;ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(110,1480);ctx.lineTo(1090,1480);ctx.stroke();
+  ctx.fillStyle='#1c2524';
+  ctx.font='bold 32px "Times New Roman", serif';
+  ctx.fillText(author,110,1541,750);
+  ctx.font='18px Arial, sans-serif';
+  ctx.fillStyle=ink;ctx.textAlign='right';
+  ctx.fillText('INM',1090,1541);
   return c;
 }
 export function makeEdge() {
