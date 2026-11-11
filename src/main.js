@@ -479,7 +479,17 @@ function focusView(view){
   const d=geometryParams||dims();
   const opened=state.open;
   const worldRootY=bookMechanics?.root.position.y||0;
-  const target=opened?new THREE.Vector3(0,worldRootY+.18,0):new THREE.Vector3(0,.05,0);
+  const width=host.clientWidth,height=host.clientHeight;
+  const pos=state.spread/Math.max(1,Math.ceil(state.sourcePages/2));
+  const edge=Math.abs(pos-.5)*2;
+  // On the first/last spreads, one board stands high over an almost
+  // closed solid textblock. The same camera framing as the middle would
+  // crop the raised board and the printed page.
+  const edgeFraming=width<760?edge*.25:edge;
+  const target=opened?
+    new THREE.Vector3((.5-pos)*.6*edgeFraming,
+      worldRootY+.18+.75*edgeFraming,0):
+    new THREE.Vector3(0,.05,0);
   let destination;
   if(!opened){
     if(view==='spine')destination=new THREE.Vector3(-5.1,1.5,5.0);
@@ -490,14 +500,14 @@ function focusView(view){
     // and two stacks are visible in cross-section rather than from overhead.
     if(view==='spine')destination=new THREE.Vector3(-.55,worldRootY+1.45,-8.5);
     else if(view==='pages')destination=new THREE.Vector3(.2,worldRootY+8.5,2.0);
-    else if(view==='read')destination=new THREE.Vector3(-1.5,worldRootY+6.65,5.1);
+    else if(view==='read')destination=new THREE.Vector3(
+      target.x-.30,worldRootY+6.4+2.5*edgeFraming,4.85+.8*edgeFraming);
     else destination=new THREE.Vector3(-2.3,worldRootY+4.8,5.8);
   }
-  const width=host.clientWidth,height=host.clientHeight;
   if(width<760){
     const direction=destination.clone().sub(target);
     let minDist=opened?
-      ((2*d.w+1.2)/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*(width/height)))*1.12:
+      ((2*d.w+.90)/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*(width/height)))*1.07:
       Math.max(9.8,d.h/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2))*.92);
     direction.setLength(Math.max(direction.length(),minDist));
     destination=target.clone().add(direction);

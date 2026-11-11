@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
-import {SignatureRig,LEAVES_PER_SIGNATURE,clamp} from './signature-rig.js';
+import {SignatureRig,LEAVES_PER_SIGNATURE,clamp,lerp} from './signature-rig.js';
 
 /**
  * One case-bound volume with discrete gatherings. The spine is a continuous
@@ -279,6 +279,60 @@ function updateFold(mesh,rig,bounds,side,sign){
   g.computeBoundingSphere();
 }
 
+/**
+ * A nearly closed 624-leaf block reads as dense fine paper stock, not 39
+ * identical concentric scallops. Smooth the OUTER head/tail cut of the bulk
+ * stack, while retaining every independently hinged gathering beneath it.
+ * A thin turned stack still shows its naturally free individual folios.
+ */
+function createBulkCutGeometry(){
+  const nu=36,nv=76,positions=new Float32Array((nu+1)*(nv+1)*3);
+  const colors=new Float32Array(positions.length);
+  const indices=[];
+  for(let j=0;j<nv;j++)for(let i=0;i<nu;i++){
+    const a=j*(nu+1)+i,b=a+nu+1;
+    indices.push(a,a+1,b+1,a,b+1,b);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  g.setAttribute('color',new THREE.BufferAttribute(colors,3));
+  g.setIndex(indices);g.userData={nu,nv};
+  return g;
+}
+function updateBulkCut(mesh,rig,side,sign){
+  const count=side==='left'?rig.split:rig.total-rig.split;
+  const dominant=count/rig.total>.76&&count>32&&rig.q>.97;
+  mesh.visible=dominant;
+  if(!dominant)return;
+  const top=side==='left'?rig.split-1:rig.split;
+  const bottom=side==='left'?0:rig.total-1;
+  const g=mesh.geometry,p=g.attributes.position,c=g.attributes.color;
+  const {nu,nv}=g.userData;
+  const V=sign>0?1:0;
+  const y=sign*((rig.d.h-.072)/2+.0017);
+  const groups=Math.min(56,count/LEAVES_PER_SIGNATURE);
+  for(let j=0;j<=nv;j++){
+    const layer=j/nv;
+    const theta=layer*groups*2*Math.PI;
+    const seam=Math.pow(Math.max(0,Math.cos(theta)),20);
+    const grain=.928-.031*seam-.009*Math.sin(j*1.77)*Math.sin(j*.31)-.008*layer;
+    for(let i=0;i<=nu;i++){
+      const u=i/nu,k=j*(nu+1)+i;
+      const a=rig.sheetPoint(bottom,side,u,V);
+      const b=rig.sheetPoint(top,side,u,V);
+      const z=lerp(a.z,b.z,layer);
+      const x=lerp(a.x,b.x,layer);
+      p.setXYZ(k,x,y,z);
+      const mottling=grain-.005*Math.sin(i*.73+j*.21);
+      c.setXYZ(k,mottling,mottling*.971,mottling*.936);
+    }
+  }
+  p.needsUpdate=true;
+  c.needsUpdate=true;
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+}
+
 export class HardcoverMechanics{
   constructor({root,materials,dimensions,sourcePages=1248,printPages=sourcePages}){
     this.root=root;this.materials=materials;this.dimensions=dimensions;
@@ -287,6 +341,7 @@ export class HardcoverMechanics{
     this.signatureCount=0;
     this.signatureMeshes={left:[],right:[]};
     this.foldMeshes={left:[],right:[]};
+    this.bulkCutMeshes={left:[],right:[]};
     this.build();
   }
   own(material){this.owned.push(material);return material;}
@@ -351,8 +406,22 @@ export class HardcoverMechanics{
         this.foldMeshes[side].push(folds);
       }
     }
-    const pageMaterial=()=>this.own(mat(0xffffff,{
-      map:m.placeholder,side:THREE.DoubleSide,roughness:1,vertexColors:true
+    const bulkMaterial=this.own(new THREE.MeshStandardMaterial({
+      color:0xffffff,vertexColors:true,roughness:1,metalness:0,
+      side:THREE.DoubleSide,emissive:0xb9ad9f,emissiveIntensity:.08
+    }));
+    for(const side of ['left','right'])for(const sign of [-1,1]){
+      const cut=this.make(createBulkCutGeometry(),bulkMaterial);
+      cut.frustumCulled=false;
+      cut.renderOrder=2;
+      this.bulkCutMeshes[side].push({mesh:cut,sign});
+    }
+    // Do not wash out printed ink under studio lighting. Display the
+    // PDF at its original sRGB contrast, while retaining the soft, local
+    // gutter vignette through vertex colors.
+    const pageMaterial=()=>this.own(new THREE.MeshBasicMaterial({
+      map:m.placeholder,color:0xffffff,side:THREE.DoubleSide,
+      vertexColors:true,toneMapped:false
     }));
     this.leftPage=this.make(createPageGeometry('left'),pageMaterial());
     this.rightPage=this.make(createPageGeometry('right'),pageMaterial());
@@ -386,6 +455,11 @@ export class HardcoverMechanics{
         updateSignature(arr[n],rig,bounds,side);
         updateFold(this.foldMeshes[side][n][0],rig,bounds,side,-1);
         updateFold(this.foldMeshes[side][n][1],rig,bounds,side,1);
+      }
+    }
+    for(const side of ['left','right']){
+      for(const {mesh,sign} of this.bulkCutMeshes[side]){
+        updateBulkCut(mesh,rig,side,sign);
       }
     }
     updatePage(this.leftPage,rig,'left');

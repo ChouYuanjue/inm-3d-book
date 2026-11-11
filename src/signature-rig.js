@@ -39,13 +39,26 @@ export class SignatureRig {
     // the boards cannot lie flat while the textblock remains sewn.
     // Split-dependent asymmetry mirrors the different weight on each side.
     const halfOpening=(180-this.openAngle)*pi/360;
-    const bias=(.5-this.position)*.15;
-    this.leftTilt=clamp(halfOpening+bias,.18,1.10);
-    this.rightTilt=clamp(halfOpening-bias,.18,1.10);
+    // Near the first few pages, almost ALL weight remains in the right
+    // block. Its board lies nearly horizontal; only the thin left cover
+    // and a handful of pages open. The distribution reverses at the end.
+    // Middle spreads share the opening between the two boards.
+    const totalTilt=2*halfOpening;
+    this.leftTilt=clamp(totalTilt*(1-this.position),0,1.55);
+    this.rightTilt=clamp(totalTilt*this.position,0,1.55);
+    this.spineEngagement=ease(Math.sin(pi*this.position));
     this.boardTilt=halfOpening;
-    this.outerRiseLeft=(d.w-.08)*Math.sin(this.leftTilt);
-    this.outerRiseRight=(d.w-.08)*Math.sin(this.rightTilt);
+    this.outerRiseLeft=d.w*Math.sin(this.leftTilt);
+    this.outerRiseRight=d.w*Math.sin(this.rightTilt);
     this.outerDrop=0;
+    // Set the bottom of each stack on its OWN raised cover board. Near
+    // page 1 the left stack contains only a few leaves: without this
+    // offset those leaves erroneously pass through the front board.
+    // The opposite correction happens near the final pages.
+    this.leftSupportOffset=Math.max(0,d.t/2+this.spinePoint(0).z)
+      +d.board*.42;
+    this.rightSupportOffset=Math.max(0,d.t/2+this.spinePoint(1).z)
+      +d.board*.42;
     // Reserved curvature near the sewing fold. The actual PDF text is
     // read at full resolution in the inspector, outside this bound area.
     this.gutterSafeFraction=clamp(.075+(180-this.openAngle)/360*.16+
@@ -67,17 +80,26 @@ export class SignatureRig {
     // CLOSED: convex round-back spine, signatures run from top to bottom
     // along the same outside curvature as the closed exterior cloth case.
     const cx=-.045-t*.16*Math.sin(pi*s);
-    const cz=t*(.5-s);
+    // As pages accumulate on the LEFT, the bulk stack changes its
+    // supported face. First and final spreads are mirror situations:
+    // the first right recto and last left verso both sit on TOP of the
+    // remaining textblock, not down at a zero-height fold.
+    const cz=t*(.5-s)*Math.cos(pi*this.position);
     // OPEN: bend around a moving neutral arc, not a common zero-thickness
     // hinge. Early pages lean to the right, late pages lean to the left.
     const phase=this.angularSpread*(s-this.position);
-    const ox=this.radius*Math.sin(phase);
+    const fullyOpenX=this.radius*Math.sin(phase);
     // The TEXTBLOCK spine throws UP into an arch as a sewn book opens;
     // it must not sag down into the case's U. The sewn folds distribute
     // across this concave (when viewed from the open book) back arc.
     // Book Conservation literature calls this the "throw-up" of the spine.
     const rise=.54+.12*Math.sin(pi*this.position);
-    const oz=this.spineBase+this.radius*rise*Math.cos(phase);
+    const fullyOpenZ=this.spineBase+this.radius*rise*Math.cos(phase);
+    // Opening ONE page does not move all 39 gatherings into an open U.
+    // The spine stays nearly in its closed cross-sectional configuration
+    // near the covers; a pronounced throw-up emerges near the middle.
+    const ox=lerp(cx,fullyOpenX,this.spineEngagement);
+    const oz=lerp(cz,fullyOpenZ,this.spineEngagement);
     return {
       x:lerp(cx,ox,this.q),
       z:lerp(cz,oz,this.q),
@@ -100,8 +122,10 @@ export class SignatureRig {
     const hollowZ=this.spineBase-.057+
       this.radius*.40*(1-Math.cos(phase));
     return {
-      x:lerp(h.closedX-outwardClosed,h.openX,this.q),
-      z:lerp(h.closedZ,hollowZ,this.q)
+      x:lerp(h.closedX-outwardClosed,
+        h.openX-.047*(1-this.spineEngagement),this.q),
+      z:lerp(h.closedZ,
+        lerp(h.closedZ,hollowZ,this.spineEngagement),this.q)
     };
   }
   /** x,y,z surface location for a *physical* sheet, in book coordinates. */
@@ -117,25 +141,32 @@ export class SignatureRig {
     // The fore-edge is raised by the physical board V-angle, with the
     // signature's own leaf-stack thickness preserved. The previous sign
     // error dropped the outer edge and fabricated knife-shaped wedges.
-    const openForeZ=-t/2+layer*this.caliper+rising;
+    const boardSupport=side==='left'?this.leftSupportOffset:this.rightSupportOffset;
+    const openForeZ=-t/2+layer*this.caliper+rising+boardSupport;
     const closedForeZ=t/2-(idx+.5)*this.caliper;
     const closedX=lerp(p.closedX,w-.018,U);
-    const openX=lerp(p.openX,(side==='left'?-1:1)*(w-.018),U);
-    // Curvature starts steeply beside each section's sewing fold, gradually
-    // relaxes outward. The root NEVER loses the signatures' thickness.
-    // Finite slope at BOTH ends: the old pow(U,.63) had an infinite
-    // derivative at the sewn fold and produced the visible sharp cusp.
-    // This rounded shoulder unwinds into a gently inclined outer leaf.
-    // A thick sewn signature cannot make a knife-edge at the gutter.
-    // A cubic shoulder and a quadratic fore-edge term give zero first
-    // derivative at the fold and a finite tilted tangent at the free edge.
-    const smoothShoulder=U*U*(3-2*U);
-    const bend=.58*smoothShoulder+.42*U*U;
-    const bow=Math.sin(pi*U)*(0.006+
-      0.004*Math.cos(idx*.24))*Math.sin(V*pi);
-    const localRoll=.024*Math.sin(pi*U)**2*
-      (1-.35*Math.abs(this.position-.5));
-    const openZ=lerp(p.openZ,openForeZ,bend)+bow+localRoll;
+    // Page width is projected into the V of its supporting cover.
+    // Previously the cover rotated but the paper extended horizontally
+    // at FULL width, so the board cut THROUGH the page near its center.
+    const projection=Math.cos(side==='left'?this.leftTilt:this.rightTilt);
+    const openX=lerp(p.openX,(side==='left'?-1:1)*(w-.018)*projection,U);
+    // A real thick book's paper is steep and curved right at the sewing
+    // fold, and relaxes onto the supporting pile across the sheet width.
+    // This exponential shoulder has a FINITE positive tangent at U=0,
+    // then its tangent falls toward that of the raised cover board.
+    // This is a local inward page fold, not a symmetric global U trough.
+    const bend=U+.28*(1-Math.exp(-U/.16))*(1-U);
+    // The characteristic page curve is local to EACH leaf near the fold:
+    // it rolls IN toward the sewing, then drapes out onto the adjacent
+    // paper stack. A heavy stack is nearly a solid block; a thin stack of
+    // just-turned pages curls much more freely. This is not a global U.
+    const stackFraction=side==='left'?this.position:1-this.position;
+    const leafDistance=Math.abs(idx-this.split)/this.total;
+    const flexibility=Math.exp(-leafDistance/.20);
+    const inwardCurl=(.045+.78*Math.pow(1-stackFraction,1.1)*flexibility);
+    const curlProfile=Math.sin(pi*U)*Math.pow(1-U,.75);
+    const bow=.005*Math.sin(pi*U)*Math.sin(V*pi)*Math.cos(idx*.28);
+    const openZ=lerp(p.openZ,openForeZ,bend)+inwardCurl*curlProfile+bow;
     const closedZ=lerp(p.closedZ,closedForeZ,U);
     const y=(V-.5)*(h-.072);
     const irregularity=this.q*.0012*Math.sin(idx*.87+V*13)*Math.sin(pi*U);
@@ -185,6 +216,8 @@ export class SignatureRig {
       radius:this.radius,
       halfOpening:this.boardTilt,
       coverInclinations:{left:this.leftTilt,right:this.rightTilt},
+      spineEngagement:this.spineEngagement,
+      supportOffset:{left:this.leftSupportOffset,right:this.rightSupportOffset},
       gutterSafeFraction:this.gutterSafeFraction,
       signatureInMiddle:{
         left:this.signatureBounds(middle,'left'),
