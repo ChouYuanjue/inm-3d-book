@@ -1,9 +1,11 @@
 import './styles.css';
 import './upgrades.css';
 import './binding-upgrades.css';
+import './simplified.css';
 import { initBookOutline } from './toc.js';
 import { createPageInspector } from './inspector.js';
 import { HardcoverMechanics } from './binding.js';
+import { SignatureRig } from './signature-rig.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
@@ -134,8 +136,11 @@ function rebuildBook(){
   bookMechanics=new HardcoverMechanics({
     root:bookRoot,
     dimensions:d,
+    sourcePages:state.sourcePages,
+    printPages:state.pages,
     materials:{
       cloth:clothMaterial,
+      clothBump,
       front:frontMaterial,
       back:backMaterial,
       spine:spineTexture,
@@ -180,6 +185,7 @@ function updateStats(){
   const thickness=(state.pages/2)*state.caliper;
   $('coreThickness').textContent=thickness.toFixed(1);
   $('sheetCount').textContent=mmWord(Math.ceil(state.pages/2));
+  $('signatureCount').textContent=Math.ceil(state.pages/32)+' signatures';
   $('physicalDimensions').textContent=d.mmw+' × '+d.mmh+' mm';
   $('pageCount').value=state.pages;
   $('pagesRange').value=Math.min(2000,Math.max(100,state.pages));
@@ -193,15 +199,18 @@ function updateStats(){
   } else {
     const left=state.spread*2;
     const right=left+1;
-    $('counterLabel').textContent='READING THE MANUSCRIPT';
-    $('pageIndicator').textContent=(left>0?mmWord(left)+'–':'')+mmWord(Math.min(right,state.sourcePages))+' / '+mmWord(state.sourcePages);
+    $('counterLabel').textContent='PAGE';
+    const leftText=left>0&&left<=state.sourcePages?mmWord(left):'';
+    const rightText=right<=state.sourcePages?mmWord(right):'';
+    $('pageIndicator').textContent=(leftText&&rightText?leftText+'–'+rightText:(leftText||rightText))+' / '+mmWord(state.sourcePages);
   }
   $('readerPosition').max=state.sourcePages;
   $('readerPageInput').max=state.sourcePages;
   $('readerPosition').value=state.currentPage;
   if(document.activeElement!==$('readerPageInput'))$('readerPageInput').value=state.currentPage;
+  $('inspectorQuick').hidden=!state.open;
   $('prevPage').disabled=!state.open||state.isMoving||state.spread<=0;
-  $('nextPage').disabled=state.isMoving||(state.open&&state.spread*2+1>=state.sourcePages);
+  $('nextPage').disabled=!state.open||state.isMoving||state.spread>=Math.ceil(state.sourcePages/2);
 }
 function applyCover() {
   const freshFront=canvasTexture(makeFrontCover(state));
@@ -261,7 +270,9 @@ function pageTexture(number){
   const promise=ensurePdf().then(async doc=>{
     if(number>doc.numPages)return placeholderTexture;
     const pg=await doc.getPage(number);
-    const viewport=pg.getViewport({scale:1.32});
+    // High-resolution real PDF page textures (the enlarged reader uses
+    // its own independent zoomable render pipeline).
+    const viewport=pg.getViewport({scale:2.18});
     const c=document.createElement('canvas');
     c.width=Math.ceil(viewport.width);
     c.height=Math.ceil(viewport.height);
@@ -288,7 +299,7 @@ function pageTexture(number){
 }
 async function setSpread(index,requestedPage=null){
   if(!parts)return;
-  state.spread=Math.min(Math.max(0,index),Math.ceil(state.sourcePages/2)-1);
+  state.spread=Math.min(Math.max(0,index),Math.ceil(state.sourcePages/2));
   state.currentPage=requestedPage===null?Math.min(state.sourcePages,state.spread*2+1):Math.min(state.sourcePages,Math.max(1,Math.floor(requestedPage)));
   const ticket=++renderToken;
   setStacks();showPages(state.open);updateStats();
@@ -315,7 +326,7 @@ function setCover(open){
     $('sceneWrap').classList.remove('is-reading');
   }
   motion={kind:'cover',from:state.coverProgress,to:state.coverTarget,start:performance.now(),duration:850};
-  $('openBook').innerHTML=open?'Close the book <span>×</span>':'Open the book <span>↗</span>';
+  $('openBook').innerHTML=open?'Close <span>×</span>':'Open <span>↗</span>';
   if(open){setSpread(state.spread);focusView('read');}
   else {updateStats();focusView('front');}
 }
@@ -328,51 +339,76 @@ function removeFlip(){
   f.frontMat.dispose();f.backMat.dispose();
   state.flip=null;
 }
+function updateFlipSurface(f,amount){
+  const geometry=f.geometry, positions=geometry.attributes.position;
+  const original=f.basePositions;
+  const w=geometryParams.w;
+  const lift=Math.sin(Math.PI*amount);
+  for(let i=0;i<positions.count;i++){
+    const sx=original[i*3],sy=original[i*3+1];
+    const u=f.dir>0?sx+.5:.5-sx,v=sy+.5;
+    const a=f.poseFrom.sheetPoint(f.leaf,f.fromSide,u,v);
+    const b=f.poseTo.sheetPoint(f.leaf,f.toSide,u,v);
+    // The sheet remains rooted in its own signature fold. The outer edge
+    // rises into a standing curved leaf before settling on the opposite stack.
+    const x=THREE.MathUtils.lerp(a.x,b.x,amount)+
+      lift*.045*Math.sin(Math.PI*u)*(v-.5);
+    const z=THREE.MathUtils.lerp(a.z,b.z,amount)+
+      lift*(w*.83*u+.085*Math.sin(Math.PI*u));
+    const y=THREE.MathUtils.lerp(a.y,b.y,amount)+
+      lift*.023*Math.sin(Math.PI*u)*Math.sin(v*Math.PI);
+    positions.setXYZ(i,x,y,z+.004);
+  }
+  positions.needsUpdate=true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+}
 async function flipPage(dir){
   if(state.isMoving)return;
   if(!state.open){setCover(true);return;}
   const next=state.spread+dir;
-  if(next<0||next>=Math.ceil(state.sourcePages/2))return;
+  if(next<0||next>Math.ceil(state.sourcePages/2))return;
   state.isMoving=true;updateStats();
-  const oldSpread=state.spread;
-  const frontNumber=dir>0?oldSpread*2+1:oldSpread*2;
-  const backNumber=dir>0?frontNumber+1:frontNumber-1;
-  const underNumber=dir>0?next*2+1:(next>0?next*2:0);
-  showLoading('Turning page '+mmWord(frontNumber)+'…');
+  const current=state.spread;
+  const first=dir>0?current*2+1:current*2;
+  const reverse=dir>0?first+1:first-1;
+  const underneath=dir>0?next*2+1:(next>0?next*2:0);
   try{
     const [front,back,under]=await Promise.all([
-      pageTexture(frontNumber),pageTexture(backNumber),pageTexture(underNumber)
+      pageTexture(first),pageTexture(reverse),pageTexture(underneath)
     ]);
     if(!state.isMoving||!state.open){state.isMoving=false;return;}
-    const {w,h,t}=geometryParams;
-    const geometry=new THREE.PlaneGeometry(w-.135,h-.14,38,11);
-    geometry.translate(dir*w/2,0,0);
-    const basePositions=Float32Array.from(geometry.attributes.position.array);
+    const geom=new THREE.PlaneGeometry(1,1,48,12);
+    const original=Float32Array.from(geom.attributes.position.array);
     const backMap=back.clone();
     backMap.wrapS=THREE.RepeatWrapping;backMap.repeat.x=-1;backMap.offset.x=1;
     backMap.needsUpdate=true;
-    const frontMat=new THREE.MeshStandardMaterial({map:front,roughness:1,metalness:0,side:THREE.FrontSide});
-    const backMat=new THREE.MeshStandardMaterial({map:backMap,roughness:1,metalness:0,side:THREE.BackSide});
-    const flipFront=new THREE.Mesh(geometry,frontMat);
-    const flipBack=new THREE.Mesh(geometry,backMat);
-    flipFront.castShadow=true;flipFront.receiveShadow=true;
-    const group=new THREE.Group();group.add(flipFront,flipBack);
-    const previousTop=bookMechanics.getTop(dir>0?'right':'left',oldSpread,state.sourcePages);
-    const futureTop=bookMechanics.getTop(dir>0?'left':'right',next,state.sourcePages);
-    group.position.set(0,0,previousTop+.018);
-    bookRoot.add(group);
+    const frontMat=new THREE.MeshStandardMaterial({
+      map:front,roughness:.98,side:THREE.FrontSide
+    });
+    const backMat=new THREE.MeshStandardMaterial({
+      map:backMap,roughness:.98,side:THREE.BackSide
+    });
+    const group=new THREE.Group();
+    const frontMesh=new THREE.Mesh(geom,frontMat);
+    const backMesh=new THREE.Mesh(geom,backMat);
+    frontMesh.frustumCulled=false;backMesh.frustumCulled=false;
+    group.add(frontMesh,backMesh);bookRoot.add(group);
+    const fromSide=dir>0?'right':'left',toSide=dir>0?'left':'right';
+    const poseFrom=new SignatureRig(geometryParams,state.sourcePages,current,1,state.openAngle,state.pages);
+    const poseTo=new SignatureRig(geometryParams,state.sourcePages,next,1,state.openAngle,state.pages);
+    const f={
+      group,geometry:geom,basePositions:original,frontMat,backMat,
+      poseFrom,poseTo,fromSide,toSide,leaf:dir>0?current:current-1,
+      dir,start:performance.now(),lastTime:performance.now(),progress:0,duration:850
+    };
+    updateFlipSurface(f,0);
     if(dir>0)setTextureOn(parts.rightPage,under);
     else setTextureOn(parts.leftPage,under);
-    const f={
-      group,geometry,basePositions,frontMat,backMat,from:0,
-      to:dir>0?-Math.PI:Math.PI,
-      fromTop:previousTop,toTop:futureTop,oldSpread,nextSpread:next,
-      dir,start:performance.now(),duration:760
-    };
     state.flip=f;showLoading('');
   }catch(err){
     console.error('Page turn failed',err);
-    showLoading('Could not render this page.',true);
+    showLoading('Could not turn the page.',true);
     state.isMoving=false;updateStats();
   }
 }
@@ -396,24 +432,13 @@ function animate(time){
   if(state.flip){
     renderDirty=true;
     const f=state.flip;
-    const k=Math.min(1,(time-f.start)/f.duration),v=ease(k);
-    f.group.rotation.y=f.from+(f.to-f.from)*v;
-    f.group.position.z=f.fromTop+(f.toTop-f.fromTop)*v+.018;
-    const pos=f.geometry.attributes.position,base=f.basePositions,w=geometryParams.w;
-    for(let i=0;i<pos.count;i++){
-      const x=base[i*3],u=Math.min(1,Math.abs(x)/w);
-      // Folded sheets bend most at mid-turn. The binding end follows the book's
-      // actual top-of-gutter height and the outer edge gently curls.
-      const fromSide=f.dir>0?'right':'left';
-      const toSide=f.dir>0?'left':'right';
-      const sourceHeight=bookMechanics.pageSurface(fromSide,f.oldSpread,state.sourcePages,u)-f.fromTop;
-      const targetHeight=bookMechanics.pageSurface(toSide,f.nextSpread,state.sourcePages,u)-f.toTop;
-      const rest=THREE.MathUtils.lerp(sourceHeight,targetHeight,v);
-      const curled=Math.sin(Math.PI*v)*(0.14+0.12*Math.min(1,geometryParams.t))
-        *Math.sin(Math.PI*u);
-      pos.setZ(i,rest+curled+Math.sin(u*10+v*7)*.003*Math.sin(Math.PI*v));
-    }
-    pos.needsUpdate=true;f.geometry.computeVertexNormals();
+    // Cap a single frame's time step. On software WebGL or a busy phone
+    // a long PDF render must not cause the entire page turn to disappear.
+    const dt=Math.min(65,Math.max(0,time-f.lastTime));
+    f.lastTime=time;
+    f.progress=Math.min(1,f.progress+dt/f.duration);
+    const k=f.progress;
+    updateFlipSurface(f,ease(k));
     if(k>=1){
       const nextSpread=state.spread+f.dir;
       removeFlip();state.isMoving=false;setSpread(nextSpread);
@@ -445,7 +470,7 @@ function focusView(view){
     // and two stacks are visible in cross-section rather than from overhead.
     if(view==='spine')destination=new THREE.Vector3(-.55,worldRootY+1.45,-8.5);
     else if(view==='pages')destination=new THREE.Vector3(.2,worldRootY+8.5,2.0);
-    else if(view==='read')destination=new THREE.Vector3(-1.8,worldRootY+5.9,4.6);
+    else if(view==='read')destination=new THREE.Vector3(-1.25,worldRootY+5.35,3.65);
     else destination=new THREE.Vector3(-2.3,worldRootY+4.8,5.8);
   }
   const width=host.clientWidth,height=host.clientHeight;
@@ -487,7 +512,7 @@ function navigateToPage(page,{fromInspector=false}={}){
     state.open=true;
     state.coverProgress=1;
     state.coverTarget=1;
-    $('openBook').innerHTML='Close the book <span>×</span>';
+    $('openBook').innerHTML='Close <span>×</span>';
     bookMechanics.render(1,state.spread,state.sourcePages,state.pages,state.openAngle);
     contactShadow.scale.x=1.22;contactShadow.scale.y=1.10;
   }
@@ -577,6 +602,7 @@ function bindUI(){
   $('readerPageInput').addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();navigateToPage(ev.target.value);ev.target.blur();}});
   $('readerGo').addEventListener('click',()=>navigateToPage($('readerPageInput').value));
   $('inspectorOpen').addEventListener('click',()=>inspector?.open(state.currentPage));
+  $('inspectorQuick').addEventListener('click',()=>inspector?.open(state.currentPage));
   $('toggleSettings').addEventListener('click',()=>{
     const el=$('sidebar'),opened=el.classList.toggle('mobile-open');
     $('toggleSettings').innerHTML=opened?'Hide print settings <span>⌃</span>':'Print settings <span>⌄</span>';
@@ -585,6 +611,7 @@ function bindUI(){
   document.addEventListener('keydown',e=>{
     if(inspector?.visible())return;
     if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;
+    if(e.key==='r'||e.key==='R'){if(state.open)inspector?.open(state.currentPage);}
     if(e.key==='ArrowRight')flipPage(1);
     if(e.key==='ArrowLeft')flipPage(-1);
     if(e.key==='Escape'&&state.open)setCover(false);
@@ -594,6 +621,13 @@ function bindUI(){
   });
   let mouseStart=null;
   renderer.domElement.addEventListener('pointerdown',ev=>{mouseStart={x:ev.clientX,y:ev.clientY};});
+  renderer.domElement.addEventListener('dblclick',ev=>{
+    if(!state.open||state.isMoving)return;
+    const rect=renderer.domElement.getBoundingClientRect();
+    const x=(ev.clientX-rect.left)/rect.width;
+    const page=x<.5?state.spread*2:state.spread*2+1;
+    if(page>0&&page<=state.sourcePages)inspector?.open(page);
+  });
   renderer.domElement.addEventListener('pointerup',ev=>{
     if(!mouseStart)return;
     const distance=Math.hypot(mouseStart.x-ev.clientX,mouseStart.y-ev.clientY);
@@ -602,7 +636,7 @@ function bindUI(){
     const xy=new THREE.Vector2(((ev.clientX-rect.left)/rect.width)*2-1,-((ev.clientY-rect.top)/rect.height)*2+1);
     const ray=new THREE.Raycaster();ray.setFromCamera(xy,camera);
     const meshes=[parts.frontCover,parts.rightPage,parts.leftPage,parts.rightStack,parts.leftStack,parts.backCover];
-    const hits=ray.intersectObjects(meshes.filter(x=>x.visible),false);
+    const hits=ray.intersectObjects(meshes.filter(x=>x.visible),true);
     if(!hits.length)return;
     if(!state.open){setCover(true);return;}
     // After opening, the gutter is at world x=0. The previous threshold

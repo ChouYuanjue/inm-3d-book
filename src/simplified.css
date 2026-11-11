@@ -1,0 +1,43 @@
+/* INM viewer: controls and book only. No editorial copy or marketing blocks. */
+.topbar{height:58px;padding:0 24px}
+.brand-mark{width:34px;height:34px;font-size:11px}
+.brand-name{font-size:16px}
+.sidebar{width:305px}
+.sidebar-content{padding:10px 19px 18px}
+.section-heading{margin:18px 0 9px}
+.section-heading:first-child{margin-top:12px}
+.section-heading span:first-child{font-size:10px;letter-spacing:1.15px}
+.field-row{margin-bottom:5px}
+.numeric-row{margin-bottom:5px}
+.range-labels{font-size:9px}
+.binding-angle-control{margin-top:12px;padding:8px 10px 5px}
+.binding-angle-control .range-control{margin:9px 0 0}
+.metric-panel{margin-top:12px}
+.scene-upper-left{top:22px;left:30px}
+.scene-upper-left strong{margin-top:0;font-size:17px}
+.scene-upper-left #sceneMeta{margin-top:5px}
+.scene-upper-right{top:18px;right:22px}
+.view-button{padding:10px 10px;font-size:10px;letter-spacing:.45px}
+.read-now{background:#1c536d;color:white;font-weight:750}
+.read-now:hover{background:#10374b!important;color:white!important}
+.read-now[hidden]{display:none!important}
+.scene-drag-note{display:none}
+.main-footer{height:30px;font-size:10px}
+.main-footer>span:last-child{display:block;letter-spacing:.3px;color:#697774}
+.reader-controls{bottom:18px}
+.reader-navigation{bottom:88px}
+.reader-inspect-btn{font-size:11px}
+@media(max-width:1080px){.sidebar{width:286px}.sidebar-content{padding:10px 15px}}
+@media(max-width:760px){
+  .topbar{height:48px;padding:0 12px}
+  .scene-upper-left{left:15px;top:14px}
+  .scene-upper-left strong{font-size:15px}
+  .scene-upper-left #sceneMeta{font-size:9px}
+  .scene-upper-right{right:8px;top:55px}
+  .view-button{padding:8px 8px;font-size:9px}
+  .sidebar{width:100%}
+  .sidebar-content{padding:16px}
+  .reader-controls{bottom:57px}
+  .reader-navigation{bottom:121px}
+  .main-footer{height:28px}
+}

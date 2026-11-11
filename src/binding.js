@@ -1,398 +1,385 @@
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {SignatureRig,LEAVES_PER_SIGNATURE,clamp} from './signature-rig.js';
 
 /**
- * INM case-bound book. The spine is one compact, continuous piece of bookcloth.
- * It NEVER unfolds with the leaves. Only cover boards pivot on their own joints.
- * A shaped stack on each side represents signatures fanning out from the gutter.
- *
- * Local coordinate system: X = fore edge; Y = spine length; Z = thickness.
- * Closed: both covers face +X, front at +Z. Open: left cover points -X,
- * back cover +X. The model as a whole reclines onto a desk when opened.
+ * One case-bound volume with discrete gatherings. The spine is a continuous
+ * exterior shell; inside it, separate sewn folds pivot on an evolving back arc.
+ * No open-book half is extruded from a two-sided, zero-thickness wedge.
  */
-const clamp = (x,a,b)=>Math.min(b,Math.max(a,x));
-const smooth = x => x*x*(3-2*x);
-const normalize = (v,max)=>clamp(v/max,0,1);
-export const topProfile = u => 1-0.19*Math.exp(-10*u);
-const bottomProfile=u=>0.055*Math.exp(-12*u);
-const PAPER_WIDTH_MARGIN=0.065;
-const GUTTER_GAP=0.042;
+const WIDTH_SEGMENTS=34;
+const HEIGHT_SEGMENTS=3;
+const PAGE_WIDTH_SEGMENTS=64;
+const PAGE_HEIGHT_SEGMENTS=16;
 
-function plain(color,extra={}){
-  return new THREE.MeshStandardMaterial({color,roughness:.94,metalness:0,...extra});
+function mat(color,props={}){
+  return new THREE.MeshStandardMaterial({color,roughness:.96,metalness:0,...props});
 }
-function endpaperTexture(){
-  const c=document.createElement('canvas');c.width=640;c.height=900;
+function add(mesh,parent){
+  parent.add(mesh);mesh.castShadow=false;mesh.receiveShadow=false;return mesh;
+}
+function bookEnds(){
+  const c=document.createElement('canvas');c.width=480;c.height=680;
   const ctx=c.getContext('2d');
-  const g=ctx.createLinearGradient(0,0,c.width,c.height);
-  g.addColorStop(0,'#ede7da');g.addColorStop(.55,'#e7e2d7');g.addColorStop(1,'#dedacc');
-  ctx.fillStyle=g;ctx.fillRect(0,0,c.width,c.height);
-  let seed=1539261;const rand=()=>((seed=(seed*1664525+1013904223)>>>0)/4294967296);
-  for(let i=0;i<2400;i++){
-    const x=rand()*c.width,y=rand()*c.height;
-    ctx.fillStyle=rand()>.5?'rgba(255,255,255,.07)':'rgba(92,87,63,.035)';
-    ctx.fillRect(x,y,1+rand()*3,.25+rand());
+  ctx.fillStyle='#e7e1d5';ctx.fillRect(0,0,480,680);
+  let x=6331319;
+  for(let i=0;i<2700;i++){
+    x=(Math.imul(x,1664525)+1013904223)>>>0;
+    const u=x/4294967296;
+    ctx.fillStyle='rgba(112,96,78,.021)';
+    ctx.fillRect((u*9973)%480,(u*8741)%680,1.2,.55);
   }
-  ctx.strokeStyle='rgba(74,104,115,.21)';ctx.lineWidth=1.4;
-  ctx.strokeRect(29,29,582,842);
-  const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;
-  tex.anisotropy=4;
-  return tex;
+  const texture=new THREE.CanvasTexture(c);
+  texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=4;
+  return texture;
 }
-
-function blockGeometry(w,h,side){
-  const shape=new THREE.Shape();
-  const N=56, xMin=.035, xMax=w-PAPER_WIDTH_MARGIN;
-  for(let i=0;i<=N;i++){
-    const x=xMin+(xMax-xMin)*i/N,u=normalize(x,w);
-    if(!i)shape.moveTo(side*x,bottomProfile(u));
-    else shape.lineTo(side*x,bottomProfile(u));
+function createSignatureGeometry(w,h){
+  const nx=WIDTH_SEGMENTS,ny=HEIGHT_SEGMENTS;
+  const grid=(nx+1)*(ny+1);
+  const vertexCount=grid*2;
+  const positions=new Float32Array(vertexCount*3);
+  const normals=new Float32Array(vertexCount*3);
+  const uvs=new Float32Array(vertexCount*2);
+  for(let layer=0;layer<2;layer++)for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
+    const v=layer*grid+j*(nx+1)+i;
+    uvs[v*2]=i/nx;uvs[v*2+1]=j/ny;
   }
-  for(let i=N;i>=0;i--){
-    const x=xMin+(xMax-xMin)*i/N,u=normalize(x,w);
-    shape.lineTo(side*x,topProfile(u));
+  const paper=[],cut=[],seam=[];
+  function quad(dst,a,b,c,d){
+    dst.push(a,b,c,a,c,d);
   }
-  shape.closePath();
-  const geo=new THREE.ExtrudeGeometry(shape,{
-    steps:1,depth:h-.07,bevelEnabled:false,curveSegments:1
-  });
-  geo.rotateX(Math.PI/2);
-  geo.translate(0,(h-.07)/2,0);
-  geo.userData.basePositions=Float32Array.from(geo.attributes.position.array);
-  return geo;
-}
-function sheetGeometry(w,h,side){
-  const geo=new THREE.PlaneGeometry(w-.115,h-.135,54,8);
-  geo.translate(side*w/2,0,0);
-  geo.userData.basePositions=Float32Array.from(geo.attributes.position.array);
-  return geo;
-}
-function spineGeometry(h){
-  const segments=72,coords=new Float32Array((segments+1)*6);
-  const uvs=new Float32Array((segments+1)*4);
-  const indices=[];
-  for(let i=0;i<=segments;i++){
-    const u=i/segments;
-    uvs[4*i]=u;uvs[4*i+1]=0;uvs[4*i+2]=u;uvs[4*i+3]=1;
-    if(i<segments){
-      const k=i*2;indices.push(k,k+1,k+2,k+2,k+1,k+3);
-    }
+  function id(layer,i,j){return layer*grid+j*(nx+1)+i;}
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+    quad(paper,id(0,i,j),id(0,i+1,j),id(0,i+1,j+1),id(0,i,j+1));
+    quad(paper,id(1,i,j+1),id(1,i+1,j+1),id(1,i+1,j),id(1,i,j));
   }
-  const geo=new THREE.BufferGeometry();
-  geo.setIndex(indices);
-  geo.setAttribute('position',new THREE.BufferAttribute(coords,3));
-  geo.setAttribute('uv',new THREE.BufferAttribute(uvs,2));
-  return geo;
-}
-function laminatedCutGeometry(w,h,side,kind,material){
-  // Each visible signature cut is a *surface made of hundreds of narrow paper
-  // lamellae*, with its own soft color gradient. This preserves the layer
-  // structure under any page-count change and eliminates the solid gray slab.
-  const layers=kind==='fore'?108:82;
-  const sections=kind==='fore'?4:21;
-  const n=layers*sections*6;
+  for(let i=0;i<nx;i++){
+    quad(cut,id(0,i,0),id(1,i,0),id(1,i+1,0),id(0,i+1,0));
+    quad(cut,id(0,i+1,ny),id(1,i+1,ny),id(1,i,ny),id(0,i,ny));
+  }
+  for(let j=0;j<ny;j++){
+    quad(cut,id(0,nx,j),id(1,nx,j),id(1,nx,j+1),id(0,nx,j+1));
+    quad(seam,id(0,0,j+1),id(1,0,j+1),id(1,0,j),id(0,0,j));
+  }
   const geometry=new THREE.BufferGeometry();
-  const positions=new Float32Array(n*3);
-  const normals=new Float32Array(n*3);
-  const colors=new Float32Array(n*3);
-  const metadata=new Float32Array(n*3);
-  const baseDarker=new THREE.Color('#c4baad');
-  const baseLighter=new THREE.Color('#f6f1e7');
-  const baseMiddle=new THREE.Color('#eee8dc');
-  const normal=kind==='fore'?[side,0,0]:[0,kind==='head'?1:-1,0];
-  let v=0;
-  for(let j=0;j<layers;j++){
-    const f0=j/layers,f1=(j+1)/layers;
-    const wobble=Math.sin(j*11.77)*Math.cos(j*3.87);
-    const mid=baseMiddle.clone().lerp(baseLighter,.13+.07*wobble);
-    const low=baseDarker.clone().lerp(mid,.61+.06*wobble);
-    const high=mid.clone().lerp(baseLighter,.14);
-    for(let i=0;i<sections;i++){
-      const u0=(.035+(w-.035-PAPER_WIDTH_MARGIN)*i/sections)/w;
-      const u1=(.035+(w-.035-PAPER_WIDTH_MARGIN)*(i+1)/sections)/w;
-      const y0=-(h/2-.041)+(h-.082)*i/sections;
-      const y1=-(h/2-.041)+(h-.082)*(i+1)/sections;
-      const corners=kind==='fore'
-        ?[[1,f0,y0],[1,f0,y1],[1,f1,y1],[1,f1,y0]]
-        :[[u0,f0,0],[u1,f0,0],[u1,f1,0],[u0,f1,0]];
-      for(const [corner,shade] of [[0,low],[1,low],[2,high],[0,low],[2,high],[3,high]]){
-        const [u,f,y]=corners[corner],o=v*3;
-        metadata[o]=u;metadata[o+1]=f;metadata[o+2]=y;
-        normals[o]=normal[0];normals[o+1]=normal[1];normals[o+2]=normal[2];
-        colors[o]=shade.r;colors[o+1]=shade.g;colors[o+2]=shade.b;
-        v++;
-      }
-    }
-  }
+  const indices=paper.concat(cut,seam);
   geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
   geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));
-  geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
-  const mesh=new THREE.Mesh(geometry,material);
-  mesh.userData={meta:metadata,kind,side,w,h};
-  mesh.castShadow=false;
-  mesh.receiveShadow=false;
-  mesh.frustumCulled=false;
-  mesh.renderOrder=2;
+  geometry.setAttribute('uv',new THREE.BufferAttribute(uvs,2));
+  geometry.setIndex(indices);
+  geometry.addGroup(0,paper.length,0);
+  geometry.addGroup(paper.length,cut.length,1);
+  geometry.addGroup(paper.length+cut.length,seam.length,2);
+  geometry.userData={nx,ny,grid};
+  return geometry;
+}
+function updateSignature(mesh,rig,bounds,side){
+  const {start,end,count}=bounds;
+  mesh.visible=count>0;
+  if(!count)return;
+  const g=mesh.geometry;
+  const {nx,ny,grid}=g.userData;
+  const p=g.attributes.position;
+  const paperHigh=(side==='left'?end-1:start);
+  const paperLow=(side==='left'?start:end-1);
+  for(let layer=0;layer<2;layer++){
+    const sheet=layer?paperLow:paperHigh;
+    for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
+      const u=i/nx,v=j/ny,index=layer*grid+j*(nx+1)+i;
+      const pt=rig.sheetPoint(sheet,side,u,v);
+      // A signature is a folded gathering, with nonzero physical thickness
+      // even along its sewn root. Cut faces connect the outermost folios.
+      p.setXYZ(index,pt.x,pt.y,pt.z+(layer?-.0005:.0005));
+    }
+  }
+  p.needsUpdate=true;
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+}
+function createPageGeometry(side){
+  const nx=PAGE_WIDTH_SEGMENTS,ny=PAGE_HEIGHT_SEGMENTS;
+  const p=new Float32Array((nx+1)*(ny+1)*3);
+  const uv=new Float32Array((nx+1)*(ny+1)*2);
+  const indices=[];
+  for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
+    const k=j*(nx+1)+i,u=i/nx;
+    uv[2*k]=side==='left'?1-u:u;uv[2*k+1]=j/ny;
+    if(i<nx&&j<ny){
+      const a=k,b=k+1,c=k+nx+2,d=k+nx+1;
+      indices.push(a,b,c,a,c,d);
+    }
+  }
+  const geom=new THREE.BufferGeometry();
+  geom.setAttribute('position',new THREE.BufferAttribute(p,3));
+  geom.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  geom.setIndex(indices);
+  geom.userData={nx,ny,side};
+  geom.computeVertexNormals();
+  return geom;
+}
+function updatePage(mesh,rig,side){
+  const idx=rig.visibleLeaf(side);
+  mesh.visible=idx!==null&&rig.q>.98;
+  if(idx===null)return;
+  const {nx,ny}=mesh.geometry.userData;
+  const pos=mesh.geometry.attributes.position;
+  for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
+    const pt=rig.sheetPoint(idx,side,i/nx,j/ny);
+    pos.setXYZ(j*(nx+1)+i,pt.x,pt.y,pt.z+.0035);
+  }
+  pos.needsUpdate=true;mesh.geometry.computeVertexNormals();
+  mesh.geometry.computeBoundingSphere();
+}
+function spineGeometry(h){
+  const nu=100,nv=4;
+  const positions=new Float32Array((nu+1)*(nv+1)*3);
+  const uv=new Float32Array((nu+1)*(nv+1)*2);
+  const indices=[];
+  for(let j=0;j<=nv;j++)for(let i=0;i<=nu;i++){
+    const k=j*(nu+1)+i;
+    uv[k*2]=i/nu;uv[k*2+1]=j/nv;
+    if(i<nu&&j<nv){
+      const a=k,b=k+1,c=k+nu+2,d=k+nu+1;
+      indices.push(a,b,c,a,c,d);
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  g.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  g.setIndex(indices);
+  g.userData={nu,nv};
+  return g;
+}
+function updateSpine(mesh,rig,h,overhang){
+  const g=mesh.geometry,p=g.attributes.position;
+  const {nu,nv}=g.userData;
+  for(let j=0;j<=nv;j++)for(let i=0;i<=nu;i++){
+    const k=j*(nu+1)+i;
+    const s=i/nu,y=(-.5+j/nv)*(h+2*overhang);
+    const c=rig.spinePoint(s);
+    p.setXYZ(k,c.x-.001*Math.sin(y*2),y,c.z);
+  }
+  p.needsUpdate=true;g.computeVertexNormals();g.computeBoundingSphere();
+}
+function makeEndband(rig,h,sign){
+  const N=80;
+  const geom=new THREE.BufferGeometry();
+  geom.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(N*3),3));
+  const mesh=new THREE.Line(geom,new THREE.LineBasicMaterial({color:0x42647a,transparent:true,opacity:.82}));
+  mesh.userData={N,sign,h};
   return mesh;
 }
-function updateLaminatedCut(mesh,thick,drop,fan,gutter,openFraction){
-  const {meta,kind,side,w,h}=mesh.userData;
+function updateEndband(mesh,rig){
   const pos=mesh.geometry.attributes.position;
-  const count=pos.count;
-  const headY=(h/2-.035)+.005;
-  for(let i=0;i<count;i++){
-    const o=i*3,u=meta[o],f=meta[o+1],y=meta[o+2];
-    const z=fanHeight(u,f,thick,drop,fan,gutter,openFraction);
-    if(kind==='fore'){
-      pos.setXYZ(i,side*(w-PAPER_WIDTH_MARGIN+.005),y,z);
-    }else{
-      pos.setXYZ(i,side*u*w,(kind==='head'?1:-1)*headY,z);
+  const {N,sign,h}=mesh.userData;
+  for(let i=0;i<N;i++){
+    const p=rig.spinePoint(i/(N-1));
+    pos.setXYZ(i,p.x,sign*(h/2-.015),p.z+.012);
+  }
+  pos.needsUpdate=true;
+}
+
+function foldedGatheringGeometry(){
+  // Visible sewn fold of one 16-leaf gathering, not a common metal pivot.
+  const around=6,across=18,positions=new Float32Array((across+1)*(around+1)*3);
+  const indices=[];
+  for(let i=0;i<across;i++)for(let j=0;j<around;j++){
+    const a=i*(around+1)+j,b=a+around+1;
+    indices.push(a,b,a+1,a+1,b,b+1);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  g.setIndex(indices);
+  g.userData={around,across};
+  return g;
+}
+function updateFold(mesh,rig,bounds,side,sign){
+  mesh.visible=bounds.count>0&&rig.q>.58;
+  if(!mesh.visible)return;
+  const low=rig.sheetPoint(bounds.start,side,0,sign===1?1:0);
+  const high=rig.sheetPoint(bounds.end-1,side,0,sign===1?1:0);
+  const g=mesh.geometry;
+  const pos=g.attributes.position;
+  const {around,across}=g.userData;
+  const span=Math.hypot(high.x-low.x,high.z-low.z);
+  const bump=Math.max(.0035,span*.34);
+  const r=Math.max(.0011,rig.caliper*.92);
+  for(let i=0;i<=across;i++){
+    const t=i/across;
+    const cx=low.x+(high.x-low.x)*t+
+      (side==='left'?-1:1)*bump*Math.sin(Math.PI*t);
+    const cz=low.z+(high.z-low.z)*t;
+    const derivativeX=high.x-low.x+
+      (side==='left'?-1:1)*bump*Math.PI*Math.cos(Math.PI*t);
+    const derivativeZ=high.z-low.z;
+    const len=Math.hypot(derivativeX,derivativeZ)||1;
+    const normalX=-derivativeZ/len,normalZ=derivativeX/len;
+    const y=sign*(rig.d.h/2-.036);
+    for(let j=0;j<=around;j++){
+      const a=2*Math.PI*j/around;
+      const c=Math.cos(a)*r,s=Math.sin(a)*r;
+      pos.setXYZ(i*(around+1)+j,
+        cx+normalX*c,y+s,cz+normalZ*c);
     }
   }
   pos.needsUpdate=true;
-}
-function clothSpineCoords(u,q,t,board,sag){
-  // Closed: the broad curved BACK of a book, spanning the entire thickness.
-  const z0=-t/2-board/2-.008;
-  const r=Math.min(.16,t*.17);
-  const closedX=-.045-r*Math.sin(Math.PI*u);
-  const closedZ=z0+(t+board+.016)*u;
-  // Open: the *same intact casing*, tucked compactly behind the sewn spine.
-  // It is a narrow downward U, not two spreading wings or an unfolded board.
-  const openX=GUTTER_GAP*(1-2*u)-.006*Math.sin(Math.PI*u);
-  const openZ=z0-sag*Math.sin(Math.PI*u);
-  return [THREE.MathUtils.lerp(closedX,openX,q),
-          THREE.MathUtils.lerp(closedZ,openZ,q)];
-}
-function fanHeight(u,f,thick,drop,fan,gutter,openFraction){
-  const flow=1-Math.exp(-u*12);
-  const closed=thick*(bottomProfile(u)+(topProfile(u)-bottomProfile(u))*f);
-  const open=gutter*(1-flow)+(thick*f-drop*u+fan*u*u*(.10+.90*f))*flow;
-  return THREE.MathUtils.lerp(closed,open,openFraction);
-}
-function placeStack(geom,thick,drop,fan,w,gutter,openFraction){
-  const pos=geom.attributes.position;
-  const base=geom.userData.basePositions;
-  for(let i=0;i<pos.count;i++){
-    const x=base[i*3],y=base[i*3+1],z=base[i*3+2];
-    const u=normalize(Math.abs(x),w);
-    const lower=bottomProfile(u),upper=topProfile(u);
-    const fraction=clamp((z-lower)/(upper-lower),0,1);
-    pos.setZ(i,fanHeight(u,fraction,thick,drop,fan,gutter,openFraction));
-  }
-  pos.needsUpdate=true;
-  geom.computeVertexNormals();
-  geom.computeBoundingSphere();
-}
-function placeSheet(geo,thick,drop,fan,w,gutter,openFraction,offset=.015){
-  const pos=geo.attributes.position,base=geo.userData.basePositions;
-  for(let i=0;i<pos.count;i++){
-    const x=base[i*3],y=base[i*3+1],u=normalize(Math.abs(x),w);
-    const ripple=.0025*Math.sin(Math.PI*u)*(1+Math.cos(y*7.5))*.5;
-    pos.setZ(i,fanHeight(u,1,thick,drop,fan,gutter,openFraction)+offset+ripple);
-  }
-  pos.needsUpdate=true;geo.computeVertexNormals();geo.computeBoundingSphere();
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
 }
 
 export class HardcoverMechanics{
-  constructor({root,materials,dimensions}){
+  constructor({root,materials,dimensions,sourcePages=1248,printPages=sourcePages}){
     this.root=root;this.materials=materials;this.dimensions=dimensions;
-    this.materialsOwned=[];this.last=null;this.build();
+    this.sourcePages=sourcePages;this.printPages=printPages;
+    this.owned=[];
+    this.signatureCount=0;
+    this.signatureMeshes={left:[],right:[]};
+    this.foldMeshes={left:[],right:[]};
+    this.build();
   }
-  own(m){this.materialsOwned.push(m);return m;}
-  add(geo,mat,parent=this.root){
-    const o=new THREE.Mesh(geo,mat);o.castShadow=true;o.receiveShadow=true;
-    parent.add(o);return o;
+  own(material){this.owned.push(material);return material;}
+  make(geometry,material,parent=this.root){
+    return add(new THREE.Mesh(geometry,material),parent);
   }
   build(){
     const {w,h,t,board,overhang}=this.dimensions;
     const m=this.materials;
+    this.frontPivot=add(new THREE.Group(),this.root);
+    this.backPivot=add(new THREE.Group(),this.root);
+    // Rounded boards with a full-cover, editable printed front/back.
     const coverW=w+overhang*2,coverH=h+overhang*2;
-    const coverGeom=()=>new RoundedBoxGeometry(coverW,coverH,board,3,Math.min(.009,board*.24));
-    this.backPivot=new THREE.Group();this.root.add(this.backPivot);
-    this.backBoard=this.add(coverGeom(),
-      [m.cloth,m.cloth,m.cloth,m.cloth,m.cloth,m.back],this.backPivot);
-    this.backBoard.position.x=w/2;
-    this.frontPivot=new THREE.Group();this.root.add(this.frontPivot);
-    this.frontBoard=this.add(coverGeom(),
+    const shell=()=>new RoundedBoxGeometry(coverW,coverH,board,3,Math.min(board*.23,.008));
+    this.frontBoard=this.make(shell(),
       [m.cloth,m.cloth,m.cloth,m.cloth,m.front,m.cloth],this.frontPivot);
+    this.backBoard=this.make(shell(),
+      [m.cloth,m.cloth,m.cloth,m.cloth,m.cloth,m.back],this.backPivot);
     this.frontBoard.position.x=w/2;
-    const endpaperMat=this.own(new THREE.MeshStandardMaterial({
-      map:endpaperTexture(),side:THREE.DoubleSide,roughness:1
-    }));
-    this.backPastedown=this.add(new THREE.PlaneGeometry(w-.09,h-.11),endpaperMat,this.backPivot);
-    this.backPastedown.position.set(w/2,0,board/2+.003);
-    this.backPastedown.castShadow=false;
-    this.frontPastedown=this.add(new THREE.PlaneGeometry(w-.09,h-.11),endpaperMat,this.frontPivot);
-    this.frontPastedown.position.set(w/2,0,-board/2-.003);
-    this.frontPastedown.castShadow=false;
+    this.backBoard.position.x=w/2;
 
-    // Bookcloth joint follows each *cover board*, never the turning leaves.
-    const jointMat=this.own(plain(0xccc4b3,{side:THREE.DoubleSide}));
-    this.frontJoint=this.add(new THREE.PlaneGeometry(.075,h-.05),jointMat,this.frontPivot);
-    this.frontJoint.position.set(.005,0,-board/2-.006);
-    this.backJoint=this.add(new THREE.PlaneGeometry(.075,h-.05),jointMat,this.backPivot);
-    this.backJoint.position.set(.005,0,board/2+.006);
-    this.frontJoint.castShadow=false;this.backJoint.castShadow=false;
+    const endMat=this.own(mat(0xffffff,{map:bookEnds(),side:THREE.DoubleSide}));
+    this.frontPastedown=this.make(new THREE.PlaneGeometry(w-.075,h-.085),endMat,this.frontPivot);
+    this.backPastedown=this.make(new THREE.PlaneGeometry(w-.075,h-.085),endMat,this.backPivot);
+    this.frontPastedown.position.set(w/2,0,-board/2-.002);
+    this.backPastedown.position.set(w/2,0,board/2+.002);
+    const seamMat=this.own(mat(0xc9bfaf,{side:THREE.DoubleSide}));
+    const f=this.make(new THREE.PlaneGeometry(.068,h-.04),seamMat,this.frontPivot);
+    const b=this.make(new THREE.PlaneGeometry(.068,h-.04),seamMat,this.backPivot);
+    f.position.set(.012,0,-board/2-.003);
+    b.position.set(.012,0,board/2+.003);
 
-    this.leftPivot=new THREE.Group();this.rightPivot=new THREE.Group();
-    this.root.add(this.leftPivot,this.rightPivot);
-    const paperCut=this.own(new THREE.MeshStandardMaterial({map:m.edge,color:0xffffff,roughness:.97,metalness:0,side:THREE.DoubleSide}));
-    const paperEdge=this.own(plain(0xf0ece5,{side:THREE.DoubleSide}));
-    this.paperMaterial=paperCut;
-    this.rightStack=this.add(blockGeometry(w,h,1),[paperCut,paperEdge],this.rightPivot);
-    this.leftStack=this.add(blockGeometry(w,h,-1),[paperCut,paperEdge],this.leftPivot);
-    const pageMat=()=>this.own(new THREE.MeshStandardMaterial({
-      map:m.placeholder,roughness:1,metalness:0,side:THREE.DoubleSide
+    this.leftStack=add(new THREE.Group(),this.root);
+    this.rightStack=add(new THREE.Group(),this.root);
+    const paperMat=this.own(mat(0xf4f0e8,{side:THREE.DoubleSide}));
+    // Broad, natural cut-paper surfaces. The former high-contrast line map
+    // looked like impossibly thin slices and severe moire at the binding.
+    const edgeMat=this.own(new THREE.MeshStandardMaterial({
+      color:0xece7dc,roughness:1,metalness:0,side:THREE.DoubleSide,
+      emissive:0xb2aa9c,emissiveIntensity:.29
     }));
-    this.rightPage=this.add(sheetGeometry(w,h,1),pageMat(),this.rightPivot);
-    this.leftPage=this.add(sheetGeometry(w,h,-1),pageMat(),this.leftPivot);
-    this.rightPage.castShadow=false;this.leftPage.castShadow=false;
-    this.rightPage.renderOrder=3;this.leftPage.renderOrder=3;
-    // A stack shows countless sheet ends on three visible cut surfaces.
-    const cutMat=this.own(new THREE.MeshStandardMaterial({
-      vertexColors:true,side:THREE.DoubleSide,roughness:1,metalness:0
-    }));
-    this.crossSections={};
+    const bindingMat=this.own(mat(0xbdb3a4,{side:THREE.DoubleSide}));
+    const foldedPaperMat=this.own(mat(0xe7e2d9,{side:THREE.DoubleSide}));
+    this.signatureMaterial=[paperMat,edgeMat,bindingMat];
+
+    this.signatureCount=Math.ceil(this.printPages/32);
     for(const side of ['left','right']){
-      const sign=side==='right'?1:-1;
-      for(const kind of ['head','tail','fore']){
-        const cut=laminatedCutGeometry(w,h,sign,kind,cutMat);
-        this.crossSections[side+'_'+kind]=cut;
-        (sign===1?this.rightPivot:this.leftPivot).add(cut);
+      for(let n=0;n<this.signatureCount;n++){
+        const geom=createSignatureGeometry(w,h);
+        const mesh=this.make(geom,this.signatureMaterial,
+          side==='left'?this.leftStack:this.rightStack);
+        mesh.userData={signature:n,side};
+        mesh.frustumCulled=false;
+        this.signatureMeshes[side].push(mesh);
+        const folds=[];
+        for(const sign of [-1,1]){
+          const fold=this.make(foldedGatheringGeometry(),foldedPaperMat,
+            side==='left'?this.leftStack:this.rightStack);
+          fold.frustumCulled=false;
+          folds.push(fold);
+        }
+        this.foldMeshes[side].push(folds);
       }
     }
-    // The casing spine is one narrow continuous piece, not a movable panel.
+    const pageMaterial=()=>this.own(mat(0xffffff,{
+      map:m.placeholder,side:THREE.DoubleSide,roughness:1
+    }));
+    this.leftPage=this.make(createPageGeometry('left'),pageMaterial());
+    this.rightPage=this.make(createPageGeometry('right'),pageMaterial());
+    this.leftPage.renderOrder=3;this.rightPage.renderOrder=3;
+    this.leftPage.frustumCulled=false;this.rightPage.frustumCulled=false;
+
+    // Case cloth is ONE continuous strip in all poses. It follows the bound
+    // gathering hinges but never opens into a pair of book-page wings.
     this.spineGeometry=spineGeometry(h);
-    this.spine=this.add(this.spineGeometry,
-      this.own(new THREE.MeshStandardMaterial({
-        map:m.spine,roughness:.96,metalness:0,side:THREE.DoubleSide
-      }))
-    );
-    this.spine.castShadow=false;
-    // The sewn spine and small contrasting headbands are *inside* the casing.
-    this.sewnBack=this.add(new THREE.CylinderGeometry(.028,.028,h-.085,12),
-      this.own(plain(0xbcb2a3)),this.root);
-    this.sewnBack.castShadow=false;
+    this.spine=this.make(this.spineGeometry,
+      this.own(mat(0xffffff,{map:m.spine,side:THREE.DoubleSide,bumpMap:m.clothBump||null,bumpScale:.001})));
+    this.spine.frustumCulled=false;
     this.headbands=[];
     for(const sign of [-1,1]){
-      const tube=new THREE.Mesh(new THREE.CylinderGeometry(.009,.009,.09,9),
-        this.own(plain(0x607984)));
-      tube.rotation.z=Math.PI/2;
-      tube.castShadow=false;
-      tube.position.set(0,sign*(h/2-.04),-t/2+.026);
-      this.root.add(tube);
-      this.headbands.push(tube);
+      const b=makeEndband(null,h,sign);
+      this.root.add(b);this.headbands.push(b);
     }
-    // Thin seam between the printed leaves at the gutter, not a fabric flap.
-    this.gutterLine=this.add(new THREE.CylinderGeometry(.008,.008,h-.14,8),
-      this.own(plain(0xbbb3a4)),this.root);
-    this.gutterLine.castShadow=false;
-    this.render(0,0,1248,1248,154);
+    this.render(0,0,this.sourcePages,this.sourcePages,154);
   }
   render(q,spread,sourcePages,printPages,openAngle=154){
-    const {w,h,t,board,overhang}=this.dimensions;
-    q=clamp(q,0,1);
-    const position=clamp(spread*2/Math.max(1,sourcePages),0,1);
-    const layerLeft=t*position*q,layerRight=t*(1-position*q);
-    // Cover boards form a restrained V; flexible leaves curve independently.
-    const pageAngle=(180-clamp(openAngle,105,174))*Math.PI/180;
-    const boardAngle=clamp(pageAngle*.20,.026,.155);
-    const coverTilt=boardAngle*q;
-    const boardDrop=w*Math.sin(coverTilt);
-    const pageFan=q*(.13+Math.min(.28,pageAngle*.27));
-    const spineSag=clamp(boardDrop*.83,.085,Math.max(.13,t*.35));
-    const zBase=-t/2+.008;
-    // A rounded sewn spine makes the sheets converge at the inner gutter.
-    // The textblock gradually fans out into the full page-stack thickness at
-    // the fore edge; this is a curved signature profile, not a solid slab.
-    const gutter=t*(.19+.42*Math.abs(1-2*position));
-    const zBoard=-t/2-board/2-.009;
-
-    this.backPivot.position.set(GUTTER_GAP*q,0,zBoard);
-    // Back cover extends +X; its outer tip drops slightly towards the desk.
-    this.backPivot.rotation.y=coverTilt;
-    this.frontPivot.position.set(-GUTTER_GAP*q,0,THREE.MathUtils.lerp(t/2+board/2+.009,zBoard,q));
-    // Front cover swings to -X but does not carry any part of the spine.
-    this.frontPivot.rotation.y=q*(Math.PI-boardAngle);
-    this.backPastedown.visible=q>.07;this.frontPastedown.visible=q>.07;
-
+    const d=this.dimensions;
+    const rig=new SignatureRig(d,sourcePages,spread,q,openAngle,printPages);
+    this.rig=rig;
     for(const side of ['left','right']){
-      const right=side==='right';
-      const pivot=right?this.rightPivot:this.leftPivot;
-      const thickness=right?layerRight:layerLeft;
-      const stack=right?this.rightStack:this.leftStack;
-      const page=right?this.rightPage:this.leftPage;
-      const amount=clamp(thickness/(Math.max(.02,t*.30)),0,1);
-      const fan=pageFan*amount;
-      const drop=boardDrop;
-      pivot.position.set((right?1:-1)*GUTTER_GAP*q,0,zBase);
-      placeStack(stack.geometry,Math.max(.001,thickness),drop,fan,w,gutter,q);
-      placeSheet(page.geometry,Math.max(.001,thickness),drop,fan,w,gutter,q);
-      stack.visible=right||((position>0)&&q>.70);
-      page.visible=q>.985&&(right||position>0);
-      for(const kind of ['head','tail','fore']){
-        const cut=this.crossSections[side+'_'+kind];
-        cut.visible=stack.visible;
-        updateLaminatedCut(cut,Math.max(.001,thickness),drop,fan,gutter,q);
+      const arr=this.signatureMeshes[side];
+      for(let n=0;n<arr.length;n++){
+        const bounds=rig.signatureBounds(n,side);
+        updateSignature(arr[n],rig,bounds,side);
+        updateFold(this.foldMeshes[side][n][0],rig,bounds,side,-1);
+        updateFold(this.foldMeshes[side][n][1],rig,bounds,side,1);
       }
     }
-
-    // The *same* case spine remains narrow and continuous throughout opening.
-    // There are no extra side panels, unfolding ribbons, or detachable parts.
-    const vert=this.spineGeometry.attributes.position;
-    for(let i=0;i<=72;i++){
-      const u=i/72,[x,z]=clothSpineCoords(u,q,t,board,spineSag);
-      vert.setXYZ(2*i,x,-(h-.045)/2,z);
-      vert.setXYZ(2*i+1,x,(h-.045)/2,z);
+    updatePage(this.leftPage,rig,'left');
+    updatePage(this.rightPage,rig,'right');
+    const front=rig.getBoardAnchor('left'),back=rig.getBoardAnchor('right');
+    this.frontPivot.position.set(front.x,0,front.z);
+    this.backPivot.position.set(back.x,0,back.z);
+    const tilt=rig.boardTilt*rig.q;
+    this.frontPivot.rotation.y=rig.q*(Math.PI-rig.boardTilt);
+    this.backPivot.rotation.y=tilt;
+    this.frontPastedown.visible=rig.q>.03;
+    this.backPastedown.visible=rig.q>.03;
+    updateSpine(this.spine,rig,d.h,d.overhang);
+    const wantedMap=q>.92?null:this.materials.spine;
+    if(this.spine.material.map!==wantedMap){
+      this.spine.material.map=wantedMap;
+      this.spine.material.needsUpdate=true;
     }
-    vert.needsUpdate=true;this.spineGeometry.computeVertexNormals();
-    const mat=this.spine.material;
-    const spineMap=q>.88?null:this.materials.spine;
-    if(mat.map!==spineMap){
-      mat.map=spineMap;mat.color.set(q>.88?0xdcd5c7:0xffffff);mat.needsUpdate=true;
-    }
-    // Tiny sewn inner spine, visible only as a central crease or endband.
-    const gutterZ=zBase+gutter-.018;
-    this.gutterLine.position.set(0,0,gutterZ);
-    this.gutterLine.visible=q>.985&&position>.01&&position<.99;
-    this.sewnBack.position.set(0,0,zBase+.020);
-    this.sewnBack.visible=q>.88;
-    for(const hb of this.headbands){
-      hb.position.z=zBase+.025;
-      hb.visible=q>.75;
-    }
-    // Stand upright in the cover view; recline as one object to open the book.
+    this.spine.material.color.set(q>.92?0xe4dacf:0xffffff);
+    for(const hb of this.headbands)updateEndband(hb,rig);
     this.root.rotation.x=-q*Math.PI/2;
-    this.root.position.x=-(1-q)*w/2;
-    const boardTip=zBoard-boardDrop-board*.7;
-    const spineBottom=zBoard-spineSag-.019;
-    const low=Math.min(boardTip,spineBottom);
-    const floor=-h/2-overhang-.020;
-    this.root.position.y=q*(floor-low);
+    this.root.position.x=-(1-q)*d.w/2;
     this.root.position.z=0;
-    this.last={q,spread,position,layerLeft,layerRight,boardAngle,boardDrop,pageAngle,spineSag,spineBottom,boardTip};
+    const floor=-d.h/2-d.overhang-.020;
+    this.root.position.y=q*(floor-rig.estimatedLowestPoint());
+    this.last={q,spread,sourcePages,printPages,openAngle,
+      signatures:rig.count,rootArc:rig.analyze(),boardTilt:tilt};
     return this.last;
   }
   pageSurface(side,spread,sourcePages,u){
-    const {w,t}=this.dimensions;
-    const fraction=clamp(spread*2/Math.max(1,sourcePages),0,1);
-    const thick=t*(side==='left'?fraction:1-fraction);
-    const gutter=t*(.19+.42*Math.abs(1-2*fraction));
-    const angle=this.last?.pageAngle??((180-154)*Math.PI/180);
-    const boardAngle=clamp(angle*.20,.026,.155);
-    const drop=w*Math.sin(boardAngle);
-    const fan=(.13+Math.min(.28,angle*.27))*clamp(thick/Math.max(.02,t*.30),0,1);
-    return -t/2+.008+fanHeight(u,1,thick,drop,fan,gutter,1);
+    const rig=new SignatureRig(this.dimensions,sourcePages,spread,1,this.last?.openAngle||154,this.last?.printPages||sourcePages);
+    const idx=rig.visibleLeaf(side);
+    if(idx===null)return rig.spinePoint(.5).z;
+    return rig.sheetPoint(idx,side,u,.5).z;
+  }
+  pagePoint(side,spread,sourcePages,u,v){
+    const rig=new SignatureRig(this.dimensions,sourcePages,spread,1,this.last?.openAngle||154,this.last?.printPages||sourcePages);
+    const idx=rig.visibleLeaf(side);
+    return idx===null?{x:0,y:0,z:0}:rig.sheetPoint(idx,side,u,v);
   }
   getTop(side,spread,sourcePages){
     return this.pageSurface(side,spread,sourcePages,0);
   }
   dispose(){
-    this.root.traverse(o=>{if(o.geometry)o.geometry.dispose();});
-    for(const mat of this.materialsOwned){
-      if(mat===this.frontPastedown.material && mat.map)mat.map.dispose();
-      mat.dispose();
+    this.root.traverse(obj=>{if(obj.geometry)obj.geometry.dispose();
+      if(obj.isLine&&obj.material)obj.material.dispose();});
+    for(const material of this.owned){
+      if(material===this.frontPastedown.material&&material.map)material.map.dispose();
+      material.dispose();
     }
     this.root.clear();
   }
