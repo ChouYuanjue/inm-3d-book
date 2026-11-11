@@ -1,8 +1,64 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SignatureRig,LEAVES_PER_SIGNATURE} from '../src/signature-rig.js';
-import {spineGeometry,updateSpine} from '../src/binding.js';
+import {SignatureRig,LEAVES_PER_SIGNATURE,frontCoverYaw} from '../src/signature-rig.js';
+import {spineGeometry,updateSpine,createPageGeometry,updatePage} from '../src/binding.js';
+import * as THREE from 'three';
 const dims={w:2.7,h:3.82,t:624*.1*2.7/210,board:2.4*2.7/210,overhang:3.2*2.7/210};
+
+test('front cover swings TOWARD the reader, then unfolds to the left, never through the back',()=>{
+  // In book-local coordinates the closed front cover lies along +X, its
+  // outer face points +Z, and the binding is on the -X side.
+  for(const spread of [0,1,312,623,624]){
+    for(const q of [.15,.35,.55,.75,.95]){
+      const r=new SignatureRig(dims,1248,spread,q,120);
+      const yaw=frontCoverYaw(q,r.leftTilt);
+      assert.ok(yaw<0 && yaw>-Math.PI,
+        'front board must turn toward +Z through the short arc: spread='+spread+' q='+q);
+      assert.ok(-Math.sin(yaw)>.001,
+        'front cover must travel in front of the book, not behind: spread='+spread+' q='+q);
+    }
+    const r=new SignatureRig(dims,1248,spread,1,120);
+    const yaw=frontCoverYaw(1,r.leftTilt);
+    assert.ok(Math.cos(yaw)<0,
+      'opened front cover must be LEFT of the gutter');
+  }
+});
+
+test('exterior spine artwork is not mirror-written when seen from the left of the closed volume',()=>{
+  const rig=new SignatureRig(dims,1248,0,0,120);
+  const g=spineGeometry(dims.h,true);
+  updateSpine({geometry:g},rig,dims.h,dims.overhang);
+  const k=2*(g.userData.nu+1),far=k+g.userData.nu;
+  const p=g.attributes.position,uv=g.attributes.uv;
+  // A camera on -X sees the +Z edge on its RIGHT. The texture's U
+  // coordinate must advance in that same screen direction.
+  const screenDx=p.getZ(k)-p.getZ(far);
+  const canvasDx=uv.getX(k)-uv.getX(far);
+  assert.ok(screenDx*canvasDx>0,
+    'spine lettering must not be horizontally reversed from the exterior');
+  g.dispose();
+});
+
+test('left and right printed pages preserve their real-world horizontal and vertical directions',()=>{
+  for(const spread of [1,312,623]){
+    const rig=new SignatureRig(dims,1248,spread,1,120);
+    for(const side of ['left','right']){
+      const g=createPageGeometry(side);
+      const mesh=new THREE.Mesh(g);
+      updatePage(mesh,rig,side);
+      const {nx,ny}=g.userData,k=Math.floor(ny/2)*(nx+1);
+      const pos=g.attributes.position,uv=g.attributes.uv;
+      const dx=pos.getX(k+nx)-pos.getX(k);
+      const du=uv.getX(k+nx)-uv.getX(k);
+      const dy=pos.getY(k+nx+1)-pos.getY(k);
+      const dv=uv.getY(k+nx+1)-uv.getY(k);
+      assert.ok(dx*du>0,'both PDF pages must read left-to-right in world coordinates: '+side);
+      assert.ok(dy*dv>0,'both PDF pages must read from head toward tail: '+side);
+      assert.ok(side==='left'?dx<0:dx>0,'the side of each page must match its real location');
+      g.dispose();
+    }
+  }
+});
 
 test('1,248 pages make 39 nonzero-thickness sewn gatherings',()=>{
   const r=new SignatureRig(dims,1248,312,1,154);

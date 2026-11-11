@@ -16,6 +16,14 @@ export const clamp = (n,a,b) => Math.min(b,Math.max(a,n));
 export const lerp = (a,b,t) => a+(b-a)*t;
 export const ease = t => t*t*(3-2*t);
 
+/**
+ * Opening the front board of a left-bound Western book: its free edge
+ * passes in FRONT of the closed pages, then rests to their left. Positive
+ * Y would produce the same end orientation after a full turn, but travel
+ * behind the textblock throughout the animation.
+ */
+export const frontCoverYaw = (q,leftTilt) => -q*(pi-leftTilt);
+
 export class SignatureRig {
   constructor(d,sourcePages,spread,q,openAngle,printPages=sourcePages) {
     this.d=d;

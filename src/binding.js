@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
-import {SignatureRig,LEAVES_PER_SIGNATURE,clamp,lerp} from './signature-rig.js';
+import {SignatureRig,LEAVES_PER_SIGNATURE,clamp,lerp,frontCoverYaw} from './signature-rig.js';
 
 /**
  * One case-bound volume with discrete gatherings. The spine is a continuous
@@ -104,7 +104,7 @@ function updateSignature(mesh,rig,bounds,side){
   g.computeVertexNormals();
   g.computeBoundingSphere();
 }
-function createPageGeometry(side){
+export function createPageGeometry(side){
   const nx=PAGE_WIDTH_SEGMENTS,ny=PAGE_HEIGHT_SEGMENTS;
   const p=new Float32Array((nx+1)*(ny+1)*3);
   const uv=new Float32Array((nx+1)*(ny+1)*2);
@@ -130,7 +130,7 @@ function createPageGeometry(side){
   geom.computeVertexNormals();
   return geom;
 }
-function updatePage(mesh,rig,side){
+export function updatePage(mesh,rig,side){
   const idx=rig.visibleLeaf(side);
   mesh.visible=idx!==null&&rig.q>.98;
   if(idx===null)return;
@@ -166,7 +166,11 @@ export function spineGeometry(h,exterior=false){
   const indices=[];
   for(let j=0;j<=nv;j++)for(let i=0;i<=nu;i++){
     const k=j*(nu+1)+i;
-    uv[k*2]=i/nu;uv[k*2+1]=j/nv;
+    // When viewed from the OUTSIDE (-X) of a closed left-bound book,
+    // the back-to-front spine axis appears screen-left to screen-right.
+    // The former u=i/nu mapped the canvas in reverse: even the title
+    // on the physical spine was reflected like mirror writing.
+    uv[k*2]=exterior?1-i/nu:i/nu;uv[k*2+1]=j/nv;
     if(i<nu&&j<nv){
       const a=k,b=k+1,c=k+nu+2,d=k+nu+1;
       // u follows the spine from board to board, v follows its height.
@@ -472,9 +476,12 @@ export class HardcoverMechanics{
     this.frontPivot.position.set(front.x,0,front.z);
     this.backPivot.position.set(back.x,0,back.z);
     const tilt=rig.boardTilt*rig.q;
-    // Raised fore-edges create a real V-shaped opening. The old signs
-    // tilted the boards downward/outward and pressed the book almost flat.
-    this.frontPivot.rotation.y=rig.q*(Math.PI+rig.leftTilt);
+    // The front board must swing FORWARD toward the viewer around the
+    // left-hand binding hinge. At rest its outside is +Z; turning negative
+    // Y exposes its inside and crosses the fore-edge over the textblock.
+    // +q*(PI+tilt) ended in the SAME pose modulo 2PI, but followed the
+    // opposite (outside/backward) arc during the entire opening animation.
+    this.frontPivot.rotation.y=frontCoverYaw(rig.q,rig.leftTilt);
     this.backPivot.rotation.y=-rig.q*rig.rightTilt;
     this.frontPastedown.visible=rig.q>.03;
     this.backPastedown.visible=rig.q>.03;

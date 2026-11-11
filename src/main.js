@@ -704,7 +704,7 @@ setTimeout(()=>{
   }).catch(()=>{});
 },600);
 window.__INM_DEBUG__={
-  state, dims, scene, renderer,
+  state, dims, scene, camera, controls, renderer,
   open:()=>setCover(true),close:()=>setCover(false),
   next:()=>flipPage(1),previous:()=>flipPage(-1),
   setPageCount,focusView,jump:navigateToPage,inspect:(n)=>inspector.open(n),
