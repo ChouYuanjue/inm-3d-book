@@ -96,32 +96,24 @@ export class SignatureRig {
     // reversed its surface normal during opening and looked like an
     // inward-folding spine. Page position changes the OPEN fan instead.
     const cz=t*(.5-s);
-    const supportedOpenZ=cz*Math.cos(pi*this.position);
-    // OPEN: bend around a moving neutral arc, not a common zero-thickness
-    // hinge. Early pages lean to the right, late pages lean to the left.
+    // Rotate the closed round-back as a complete cross-section. Applying
+    // rotation only to its depth used to leave its crown on the wrong
+    // side once the reading split passed the midpoint.
+    const roll=pi*this.position*this.q;
+    const rotatedX=cx*Math.cos(roll)-cz*Math.sin(roll);
+    const rotatedZ=cx*Math.sin(roll)+cz*Math.cos(roll);
     const phase=this.angularSpread*(s-this.position);
     const fullyOpenX=this.radius*Math.sin(phase);
-    // The TEXTBLOCK spine throws UP into an arch as a sewn book opens;
-    // it must not sag down into the case's U. The sewn folds distribute
-    // across this concave (when viewed from the open book) back arc.
-    // Book Conservation literature calls this the "throw-up" of the spine.
     const rise=.24+.06*Math.sin(pi*this.position);
     const fullyOpenZ=this.spineBase+this.radius*rise*Math.cos(phase);
-    // Opening ONE page does not move all 39 gatherings into an open U.
-    // The spine stays nearly in its closed cross-sectional configuration
-    // near the covers; a pronounced throw-up emerges near the middle.
-    const ox=lerp(cx,fullyOpenX,this.spineEngagement);
-    const oz=lerp(supportedOpenZ,fullyOpenZ,this.spineEngagement);
-    // Near the last pages the closed and supported-open stacks have
-    // opposite front-to-back orders. Interpolating those coordinates
-    // directly flattens the entire back to a line halfway through the
-    // opening. Sweep its thickness around the hinge instead.
-    const roll=pi*this.position*this.q;
-    const turnX=-cz*Math.sin(roll)*(1-this.spineEngagement);
+    const engagement=this.spineEngagement*this.q;
+    const finalRoll=pi*this.position;
+    const openX=lerp(cx*Math.cos(finalRoll)-cz*Math.sin(finalRoll),fullyOpenX,this.spineEngagement);
+    const openZ=lerp(cx*Math.sin(finalRoll)+cz*Math.cos(finalRoll),fullyOpenZ,this.spineEngagement);
     return {
-      x:lerp(cx,ox,this.q)+turnX,
-      z:lerp(cz,oz,this.q),
-      closedX:cx,closedZ:cz,openX:ox,openZ:oz
+      x:lerp(rotatedX,fullyOpenX,engagement),
+      z:lerp(rotatedZ,fullyOpenZ,engagement),
+      closedX:cx,closedZ:cz,openX,openZ
     };
   }
   hingeForLeaf(leaf){
@@ -174,7 +166,7 @@ export class SignatureRig {
     const h0=(rootX-anchor.x)*nx+(rootZ-anchor.z)*nz;
     const h1=minimum+layer*this.caliper;
     const engagement=ease(clamp(count/64,0,1));
-    const distance=Math.abs(idx-this.split)/this.total;
+    const distance=Math.abs(idx+.5-this.split)/this.total;
     const fraction=count/this.total;
     const curl=(.012+.25*Math.pow(1-fraction,1.1)*Math.exp(-distance/.20))*engagement;
     const N=96,heights=[],steps=[];
@@ -186,14 +178,20 @@ export class SignatureRig {
     const length=this.d.w+.027;
     // Solve projected span, not paper length. The cross-section keeps
     // the same arc length on either stack, whatever its local curvature.
-    const arc=span=>{
-      let sum=0;
-      for(let k=1;k<=N;k++)sum+=Math.hypot(span/N,heights[k]-heights[k-1]);
-      return sum;
-    };
-    let lo=0,hi=length;
-    for(let k=0;k<26;k++){const mid=(lo+hi)/2;if(arc(mid)>length)hi=mid;else lo=mid;}
-    const span=(lo+hi)/2;
+    let lo=0,hi=length,span=length;
+    for(let iteration=0;iteration<9;iteration++){
+      let sum=0,derivative=0;
+      const along=span/N;
+      for(let k=1;k<=N;k++){
+        const segment=Math.hypot(along,heights[k]-heights[k-1]);
+        sum+=segment;derivative+=span/(N*N*Math.max(segment,1e-12));
+      }
+      const error=sum-length;
+      if(Math.abs(error)<1e-8)break;
+      if(error>0)hi=span;else lo=span;
+      const candidate=span-error/Math.max(derivative,1e-8);
+      span=candidate>lo&&candidate<hi?candidate:(lo+hi)/2;
+    }
     steps.push(0);
     for(let k=1;k<=N;k++)steps.push(steps[k-1]+Math.hypot(span/N,heights[k]-heights[k-1]));
     const curve={rootX,rootZ,dx,dz,nx,nz,h0,heights,steps,span,length,N};
@@ -207,6 +205,7 @@ export class SignatureRig {
     const closedX=lerp(p.closedX,w-.018-inset,U);
     const closedForeZ=t/2-(idx+.5)*this.caliper;
     const closedZ=lerp(p.closedZ,closedForeZ,U);
+    if(this.q===0)return {x:closedX,y:(V-.5)*(h-.072),z:closedZ};
     const c=this.openCurve(idx,side),target=U*c.steps[c.N];
     let lo=0,hi=c.N;
     while(hi-lo>1){const mid=(lo+hi)>>1;if(c.steps[mid]<target)lo=mid;else hi=mid;}

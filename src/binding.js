@@ -527,6 +527,9 @@ export class HardcoverMechanics{
     this.render(0,0,this.sourcePages,this.printPages,120);
   }
   render(q,spread,sourcePages,printPages,openAngle=154){
+    const previous=this.last;
+    if(!this.inTurn&&previous&&previous.q===q&&previous.spread===spread&&previous.sourcePages===sourcePages&&previous.printPages===printPages&&previous.openAngle===openAngle)return previous;
+    this.inTurn=false;
     const d=this.dimensions;
     const rig=new SignatureRig(d,sourcePages,spread,q,openAngle,printPages);
     this.rig=rig;
@@ -633,6 +636,7 @@ export class HardcoverMechanics{
       printPages:previous.printPages,openAngle:previous.openAngle};
   }
   applyTurn(pose,amount){
+    this.inTurn=true;
     const t=clamp(amount,0,1);
     for(const entry of pose.entries){
       const a=entry.from,b=entry.to,object=a.object;

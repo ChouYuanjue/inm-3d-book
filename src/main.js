@@ -7,6 +7,7 @@ import { createPageInspector } from './inspector.js';
 import { HardcoverMechanics } from './binding.js';
 import { SignatureRig } from './signature-rig.js';
 import { TurningLeaf } from './turning-leaf.js';
+import { PagePreviewPacks } from './page-previews.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
@@ -30,7 +31,11 @@ const state={
 let pdfDoc=null,pdfPromise=null,pdfSource=null;
 let renderToken=0;
 const pageCache=new Map();
-const MAX_CACHED_PAGES=16;
+const MAX_CACHED_PAGES=window.innerWidth<760?8:12;
+const pageTiming={};
+let pagesPendingTicket=0;
+const previewPacks=new PagePreviewPacks(import.meta.env.BASE_URL+'page-previews/');
+let usePagePreviews=true,previewUnavailable=false,prefetchTimer=null;
 const host=$('canvasHost');
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(30,1,.08,130);
@@ -263,9 +268,13 @@ function setTextureOn(mesh,tex){
   mesh.material.needsUpdate=true;
   renderDirty=true;
 }
-function loadPdf(input){
+function loadPdf(input,{isDefault=false}={}){
+  usePagePreviews=isDefault;
+  if(!isDefault){
   pageCache.forEach(p=>p.then(t=>{if(t&&t!==placeholderTexture)t.dispose();}).catch(()=>{}));
-  pageCache.clear();pdfDoc=null;renderToken++;
+  pageCache.clear();renderToken++;
+  }
+  pdfDoc=null;
   $('pdfState').textContent='Loading PDF…';
   const task=getDocument(input);
   pdfPromise=task.promise.then(doc=>{
@@ -273,7 +282,7 @@ function loadPdf(input){
     $('pdfState').textContent=mmWord(doc.numPages)+'-page source';
     showLoading('',false);
     updateStats();
-    if(state.open)setSpread(Math.min(state.spread,Math.floor((doc.numPages-1)/2)));
+    if(state.open&&!isDefault)setSpread(Math.min(state.spread,Math.floor((doc.numPages-1)/2)));
     return doc;
   }).catch(err=>{
     $('pdfState').textContent='PDF unavailable';
@@ -284,49 +293,69 @@ function loadPdf(input){
   return pdfPromise;
 }
 function ensurePdf(){
-  if(!pdfPromise)loadPdf({url:import.meta.env.BASE_URL+'inm.pdf',disableAutoFetch:false,rangeChunkSize:131072});
+  if(!pdfPromise)loadPdf({url:import.meta.env.BASE_URL+'inm.pdf',disableAutoFetch:true,rangeChunkSize:262144},{isDefault:true});
   return pdfPromise;
+}
+async function previewTexture(number){
+  const blob=await previewPacks.blob(number),url=URL.createObjectURL(blob);
+  try{
+    const image=new Image();image.src=url;await image.decode();
+    const scale=Math.min(1,(window.innerWidth<760?1100:1600)/image.height);
+    const c=document.createElement('canvas');c.width=Math.round(image.width*scale);c.height=Math.round(image.height*scale);
+    c.getContext('2d',{alpha:false}).drawImage(image,0,0,c.width,c.height);
+    return canvasTexture(c);
+  }finally{URL.revokeObjectURL(url);}
+}
+async function renderPdfTexture(number){
+  const doc=await ensurePdf();
+  if(number>doc.numPages)return placeholderTexture;
+  const pg=await doc.getPage(number),base=pg.getViewport({scale:1});
+  const viewport=pg.getViewport({scale:Math.min(1.9,(window.innerWidth<760?1100:1600)/base.height)});
+  const c=document.createElement('canvas');c.width=Math.ceil(viewport.width);c.height=Math.ceil(viewport.height);
+  const ctx=c.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+  await pg.render({canvasContext:ctx,viewport}).promise;
+  pg.cleanup();return canvasTexture(c);
 }
 function pageTexture(number){
   if(!number || number<1 || number>state.sourcePages)return Promise.resolve(placeholderTexture);
   if(pageCache.has(number))return pageCache.get(number);
-  const promise=ensurePdf().then(async doc=>{
-    if(number>doc.numPages)return placeholderTexture;
-    const pg=await doc.getPage(number);
-    // High-resolution real PDF page textures (the enlarged reader uses
-    // its own independent zoomable render pipeline).
-    const viewport=pg.getViewport({scale:2.18});
-    const c=document.createElement('canvas');
-    c.width=Math.ceil(viewport.width);
-    c.height=Math.ceil(viewport.height);
-    const ctx=c.getContext('2d',{alpha:false});
-    ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
-    await pg.render({canvasContext:ctx,viewport}).promise;
-    pg.cleanup();
-    return canvasTexture(c);
-  }).catch(err=>{
-    console.warn('Could not render page',number,err);
-    return placeholderTexture;
+  const promise=(async()=>{
+    if(usePagePreviews&&!previewUnavailable){
+      try{return await previewTexture(number);}
+      catch(error){previewUnavailable=true;console.warn('Using PDF fallback for page previews',error);}
+    }
+    return renderPdfTexture(number);
+  })().catch(err=>{
+    console.warn('Could not render page',number,err);return placeholderTexture;
   });
   pageCache.set(number,promise);
   if(pageCache.size>MAX_CACHED_PAGES){
     for(const [key,value] of pageCache){
       if(pageCache.size<=MAX_CACHED_PAGES)break;
-      if(Math.abs(key-state.spread*2-1)>5) {
-        pageCache.delete(key);
-        value.then(tex=>{if(tex!==placeholderTexture)tex.dispose();}).catch(()=>{});
+      if(Math.abs(key-state.spread*2-1)>4){
+        pageCache.delete(key);value.then(tex=>{if(tex!==placeholderTexture)tex.dispose();}).catch(()=>{});
       }
     }
   }
   return promise;
 }
+function prefetchNeighbors(){
+  clearTimeout(prefetchTimer);
+  const center=state.spread*2+1;
+  prefetchTimer=setTimeout(()=>{
+    if(!state.open||state.isMoving)return;
+    for(const page of [center+1,center+2,center-2,center-3])if(page>0&&page<=state.sourcePages)pageTexture(page);
+  },180);
+}
 async function setSpread(index,requestedPage=null){
   if(!parts)return;
   state.spread=Math.min(Math.max(0,index),Math.ceil(state.sourcePages/2));
   state.currentPage=requestedPage===null?Math.min(state.sourcePages,state.spread*2+1):Math.min(state.sourcePages,Math.max(1,Math.floor(requestedPage)));
-  const ticket=++renderToken;
+  const ticket=++renderToken,started=performance.now();
+  pagesPendingTicket=state.open?ticket:0;
   setStacks();showPages(state.open);updateStats();
   if(!state.open)return;
+  const geometryDone=performance.now();
   showLoading('Preparing the printed pages…');
   try{
     const lp=state.spread===0?0:state.spread*2;
@@ -335,13 +364,16 @@ async function setSpread(index,requestedPage=null){
     if(ticket!==renderToken)return;
     setTextureOn(parts.leftPage,left);
     setTextureOn(parts.rightPage,right);
-    showLoading('');
-  }catch(err){if(ticket===renderToken)showLoading('Page preview is temporarily unavailable.',true);}
+    pageTiming.page=state.currentPage;pageTiming.geometryMs=geometryDone-started;pageTiming.textureMs=performance.now()-geometryDone;pageTiming.totalMs=performance.now()-started;
+    pagesPendingTicket=0;
+    showLoading('');prefetchNeighbors();
+  }catch(err){if(ticket===renderToken){pagesPendingTicket=0;showLoading('Page preview is temporarily unavailable.',true);}}
 }
 function ease(x){return x*x*(3-2*x);}
 function setCover(open){
   if(state.isMoving)return;
   state.open=open;state.isMoving=true;
+  if(!open)pagesPendingTicket=0;
   state.coverTarget=open?1:0;
   state.spread=open?state.spread:0;
   if(!open){
@@ -492,7 +524,7 @@ function animate(time){
     if(k>=1)cameraMotion=null;
   }
   const controlsChanged=controls.update();
-  if(renderDirty||controlsChanged){renderer.render(scene,camera);renderDirty=false;}
+  if((renderDirty||controlsChanged)&&(!pagesPendingTicket||userAdjustedView)){renderer.render(scene,camera);renderDirty=false;}
 }
 function focusView(view){
   userAdjustedView=false;
@@ -747,16 +779,15 @@ inspector=createPageInspector({
 initBookOutline({baseUrl:import.meta.env.BASE_URL,onJump:navigateToPage});
 updateStats();
 requestAnimationFrame(animate);
+$('pdfState').textContent=mmWord(state.sourcePages)+'-page source';
 setTimeout(()=>{
-  ensurePdf().then(()=>{
-    const match=location.hash.match(/^#p=(\d+)$/);
-    if(match)navigateToPage(Number(match[1]));
-  }).catch(()=>{});
-},600);
+  const match=location.hash.match(/^#p=(\d+)$/);
+  if(match)navigateToPage(Number(match[1]));
+},0);
 window.__INM_DEBUG__={
   state, dims, scene, camera, controls, renderer,
   open:()=>setCover(true),close:()=>setCover(false),
   next:()=>flipPage(1),previous:()=>flipPage(-1),
   setPageCount,focusView,jump:navigateToPage,inspect:(n)=>inspector.open(n),
-  mechanics:()=>bookMechanics,pdf:()=>pdfDoc
+  mechanics:()=>bookMechanics,pdf:()=>pdfDoc,previews:previewPacks,pageTiming
 };

@@ -35,8 +35,11 @@ To refresh the copied source PDF and the bookmark index:
 ```powershell
 Copy-Item E:\\INM-TeX\\inm.pdf public\\inm.pdf
 & E:\\anaconda3\\python.exe scripts\\extract_outline.py
+& E:\\anaconda3\\python.exe scripts\\build_page_previews.py
 npm run build
 ```
+
+The default 3D view loads pre-rendered WebP pages through byte-range requests and prefetches adjacent leaves. The original PDF loads on demand for the full-resolution reader. Uploaded PDFs retain local PDF rendering. Regenerate the preview packs whenever the source PDF changes.
 
 The Vite static build is copied to `docs/`, with GitHub Pages configured for `main:/docs`. On machines where normal Git pushes fail, the standalone `scripts/publish.py` uses the GitHub Git Data API through the local authenticated `gh` CLI, reusing previously uploaded PDF blobs.
 

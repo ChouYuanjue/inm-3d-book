@@ -381,3 +381,24 @@ test('closed rounded textblock reaches into the spine and has a corresponding ho
     geometry.dispose();
   }
 });
+
+test('the second half is the exact reflected geometry of the first half',()=>{
+  for(const spread of [1,5,30,80,156,260]){
+    const a=new SignatureRig(dims,1248,spread,1,120);
+    const b=new SignatureRig(dims,1248,624-spread,1,120);
+    for(const s of [0,.1,.3,.5,.8,1]){
+      const p=a.hingeAtFraction(s),q=b.hingeAtFraction(1-s);
+      assert.ok(Math.abs(p.x+q.x)<1e-8&&Math.abs(p.z-q.z)<1e-8,'round back must reflect with its reading split');
+      const c=a.spinePoint(s),e=b.spinePoint(1-s);
+      assert.ok(Math.abs(c.x+e.x)<1e-8&&Math.abs(c.z-e.z)<1e-8,'exterior spine must reflect too');
+    }
+    for(const side of ['left','right']){
+      const opposite=side==='left'?'right':'left';
+      const leaf=a.visibleLeaf(side);
+      for(const u of [0,.02,.1,.25,.5,.75,1]){
+        const p=a.sheetPoint(leaf,side,u,.5),q=b.sheetPoint(623-leaf,opposite,u,.5);
+        assert.ok(Math.abs(p.x+q.x)<1e-7&&Math.abs(p.z-q.z)<1e-7,'page curvature must not reverse in the second half');
+      }
+    }
+  }
+});
