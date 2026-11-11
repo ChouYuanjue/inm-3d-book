@@ -74,3 +74,37 @@ test('paper at the fold has finite gathering thickness for every opening angle',
     }
   }
 });
+
+
+test('thick book opens as a supported V, with lifted boards on both sides',()=>{
+  const rig=new SignatureRig(dims,1248,312,1,120);
+  assert.ok(Math.abs(rig.leftTilt-Math.PI/6)<.005);
+  assert.ok(Math.abs(rig.rightTilt-Math.PI/6)<.005);
+  assert.ok(rig.outerRiseLeft>1.1&&rig.outerRiseRight>1.1);
+  assert.ok(rig.gutterSafeFraction>.08&&rig.gutterSafeFraction<.15);
+  assert.ok(rig.openAngle<=145);
+});
+
+test('sewn textblock arches above, separate hollow case spine droops below',()=>{
+  const rig=new SignatureRig(dims,1248,312,1,120);
+  const middle=rig.hingeAtFraction(.5).z;
+  const left=rig.hingeAtFraction(0).z;
+  const right=rig.hingeAtFraction(1).z;
+  assert.ok(middle>left&&middle>right);
+  const caseCenter=rig.spinePoint(.5).z;
+  const caseLeft=rig.spinePoint(0).z;
+  const caseRight=rig.spinePoint(1).z;
+  assert.ok(caseCenter<caseLeft&&caseCenter<caseRight);
+  assert.ok(middle-caseCenter>.12);
+});
+
+test('printed page shoulder is smooth, finite, and not a sharp cusp',()=>{
+  const rig=new SignatureRig(dims,1248,312,1,120);
+  const at=u=>rig.sheetPoint(312,'right',u,.5);
+  const p0=at(0),p1=at(.005),p2=at(.01),p3=at(.20),p4=at(.4),p5=at(1);
+  const startSlope=(p1.z-p0.z)/(p1.x-p0.x);
+  const nextSlope=(p2.z-p1.z)/(p2.x-p1.x);
+  assert.ok(startSlope<.05,'root must bend smoothly');
+  assert.ok(nextSlope>startSlope,'page rises gradually out of its round gutter');
+  assert.ok(p3.z>p2.z&&p4.z>p3.z&&p5.z>p4.z);
+});

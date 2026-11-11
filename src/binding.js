@@ -40,9 +40,16 @@ function createSignatureGeometry(w,h){
   const positions=new Float32Array(vertexCount*3);
   const normals=new Float32Array(vertexCount*3);
   const uvs=new Float32Array(vertexCount*2);
+  const colors=new Float32Array(vertexCount*3);
   for(let layer=0;layer<2;layer++)for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
     const v=layer*grid+j*(nx+1)+i;
-    uvs[v*2]=i/nx;uvs[v*2+1]=j/ny;
+    const u=i/nx;
+    uvs[v*2]=u;uvs[v*2+1]=j/ny;
+    const f=Math.min(1,u/.24),r=f*f*(3-2*f);
+    // Smooth shadow inside the unprintable binding gutter; no explicit
+    // opaque straight line is rendered at either page's inner edge.
+    const light=.78+.22*r;
+    colors[v*3]=light;colors[v*3+1]=light*.997;colors[v*3+2]=light*.985;
   }
   const paper=[],cut=[],seam=[];
   function quad(dst,a,b,c,d){
@@ -59,13 +66,14 @@ function createSignatureGeometry(w,h){
   }
   for(let j=0;j<ny;j++){
     quad(cut,id(0,nx,j),id(1,nx,j),id(1,nx,j+1),id(0,nx,j+1));
-    quad(seam,id(0,0,j+1),id(1,0,j+1),id(1,0,j),id(0,0,j));
+    // No visual seam stripe: the root closure is internal to the casing.
   }
   const geometry=new THREE.BufferGeometry();
   const indices=paper.concat(cut,seam);
   geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
   geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));
   geometry.setAttribute('uv',new THREE.BufferAttribute(uvs,2));
+  geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
   geometry.setIndex(indices);
   geometry.addGroup(0,paper.length,0);
   geometry.addGroup(paper.length,cut.length,1);
@@ -100,10 +108,14 @@ function createPageGeometry(side){
   const nx=PAGE_WIDTH_SEGMENTS,ny=PAGE_HEIGHT_SEGMENTS;
   const p=new Float32Array((nx+1)*(ny+1)*3);
   const uv=new Float32Array((nx+1)*(ny+1)*2);
+  const colors=new Float32Array((nx+1)*(ny+1)*3);
   const indices=[];
   for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
     const k=j*(nx+1)+i,u=i/nx;
     uv[2*k]=side==='left'?1-u:u;uv[2*k+1]=j/ny;
+    const t=Math.min(1,u/.24),a=t*t*(3-2*t);
+    const shade=.77+.23*a;
+    colors[3*k]=shade;colors[3*k+1]=shade*.998;colors[3*k+2]=shade*.985;
     if(i<nx&&j<ny){
       const a=k,b=k+1,c=k+nx+2,d=k+nx+1;
       indices.push(a,b,c,a,c,d);
@@ -112,6 +124,7 @@ function createPageGeometry(side){
   const geom=new THREE.BufferGeometry();
   geom.setAttribute('position',new THREE.BufferAttribute(p,3));
   geom.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  geom.setAttribute('color',new THREE.BufferAttribute(colors,3));
   geom.setIndex(indices);
   geom.userData={nx,ny,side};
   geom.computeVertexNormals();
@@ -123,11 +136,27 @@ function updatePage(mesh,rig,side){
   if(idx===null)return;
   const {nx,ny}=mesh.geometry.userData;
   const pos=mesh.geometry.attributes.position;
+  const uv=mesh.geometry.attributes.uv;
+  const colors=mesh.geometry.attributes.color;
+  const safe=rig.gutterSafeFraction;
   for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
-    const pt=rig.sheetPoint(idx,side,i/nx,j/ny);
-    pos.setXYZ(j*(nx+1)+i,pt.x,pt.y,pt.z+.0035);
+    const u=i/nx,v=j/ny,k=j*(nx+1)+i;
+    const pt=rig.sheetPoint(idx,side,u,v);
+    pos.setXYZ(k,pt.x,pt.y,pt.z+.0035);
+    // Reserve the highly bent area next to each sewing fold for unprinted
+    // PDF margin. The image texture excludes the innermost source margin
+    // while full unmodified text stays available in READ PDF.
+    const printable=Math.max(0,(u-safe)/(1-safe));
+    const tex=.085+.915*printable;
+    uv.setXY(k,side==='left'?1-tex:tex,v);
+    const t=Math.min(1,u/(safe*1.8)),blend=t*t*(3-2*t);
+    const shade=.83+.17*blend;
+    colors.setXYZ(k,shade,shade*.997,shade*.985);
   }
-  pos.needsUpdate=true;mesh.geometry.computeVertexNormals();
+  pos.needsUpdate=true;
+  uv.needsUpdate=true;
+  colors.needsUpdate=true;
+  mesh.geometry.computeVertexNormals();
   mesh.geometry.computeBoundingSphere();
 }
 function spineGeometry(h){
@@ -161,6 +190,27 @@ function updateSpine(mesh,rig,h,overhang){
   }
   p.needsUpdate=true;g.computeVertexNormals();g.computeBoundingSphere();
 }
+/**
+ * A sewn textblock has its own backing arch when opened. This is distinct
+ * from the exterior hollow-case U and produces the rounded (non-knife)
+ * cross-section that a heavy book displays when viewed from the head.
+ */
+function updateTextblockBacking(mesh,rig,h){
+  const geometry=mesh.geometry,positions=geometry.attributes.position;
+  const {nu,nv}=geometry.userData;
+  for(let j=0;j<=nv;j++)for(let i=0;i<=nu;i++){
+    const k=j*(nu+1)+i;
+    const s=i/nu;
+    const fold=rig.hingeAtFraction(s);
+    const y=(-.5+j/nv)*(h-.09);
+    // Recess the mull beneath the separate visible leaf roots.
+    positions.setXYZ(k,fold.x,y,fold.z-.024);
+  }
+  positions.needsUpdate=true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+}
+
 function makeEndband(rig,h,sign){
   const N=80;
   const geom=new THREE.BufferGeometry();
@@ -194,7 +244,9 @@ function foldedGatheringGeometry(){
   return g;
 }
 function updateFold(mesh,rig,bounds,side,sign){
-  mesh.visible=bounds.count>0&&rig.q>.58;
+  // Keep the physical fold axes for geometry, but do not show the thick
+  // parallel highlight lines that made the center look like two ruler strips.
+  mesh.visible=false;
   if(!mesh.visible)return;
   const low=rig.sheetPoint(bounds.start,side,0,sign===1?1:0);
   const high=rig.sheetPoint(bounds.end-1,side,0,sign===1?1:0);
@@ -269,7 +321,7 @@ export class HardcoverMechanics{
 
     this.leftStack=add(new THREE.Group(),this.root);
     this.rightStack=add(new THREE.Group(),this.root);
-    const paperMat=this.own(mat(0xf4f0e8,{side:THREE.DoubleSide}));
+    const paperMat=this.own(mat(0xf7f3eb,{side:THREE.DoubleSide,vertexColors:true}));
     // Broad, natural cut-paper surfaces. The former high-contrast line map
     // looked like impossibly thin slices and severe moire at the binding.
     const edgeMat=this.own(new THREE.MeshStandardMaterial({
@@ -300,7 +352,7 @@ export class HardcoverMechanics{
       }
     }
     const pageMaterial=()=>this.own(mat(0xffffff,{
-      map:m.placeholder,side:THREE.DoubleSide,roughness:1
+      map:m.placeholder,side:THREE.DoubleSide,roughness:1,vertexColors:true
     }));
     this.leftPage=this.make(createPageGeometry('left'),pageMaterial());
     this.rightPage=this.make(createPageGeometry('right'),pageMaterial());
@@ -312,13 +364,16 @@ export class HardcoverMechanics{
     this.spineGeometry=spineGeometry(h);
     this.spine=this.make(this.spineGeometry,
       this.own(mat(0xffffff,{map:m.spine,side:THREE.DoubleSide,bumpMap:m.clothBump||null,bumpScale:.001})));
+    this.sewnBacking=this.make(spineGeometry(h),
+      this.own(mat(0xc7bcaa,{side:THREE.DoubleSide,roughness:1})));
+    this.sewnBacking.frustumCulled=false;
     this.spine.frustumCulled=false;
     this.headbands=[];
     for(const sign of [-1,1]){
       const b=makeEndband(null,h,sign);
       this.root.add(b);this.headbands.push(b);
     }
-    this.render(0,0,this.sourcePages,this.sourcePages,154);
+    this.render(0,0,this.sourcePages,this.printPages,120);
   }
   render(q,spread,sourcePages,printPages,openAngle=154){
     const d=this.dimensions;
@@ -339,18 +394,24 @@ export class HardcoverMechanics{
     this.frontPivot.position.set(front.x,0,front.z);
     this.backPivot.position.set(back.x,0,back.z);
     const tilt=rig.boardTilt*rig.q;
-    this.frontPivot.rotation.y=rig.q*(Math.PI-rig.boardTilt);
-    this.backPivot.rotation.y=tilt;
+    // Raised fore-edges create a real V-shaped opening. The old signs
+    // tilted the boards downward/outward and pressed the book almost flat.
+    this.frontPivot.rotation.y=rig.q*(Math.PI+rig.leftTilt);
+    this.backPivot.rotation.y=-rig.q*rig.rightTilt;
     this.frontPastedown.visible=rig.q>.03;
     this.backPastedown.visible=rig.q>.03;
     updateSpine(this.spine,rig,d.h,d.overhang);
+    updateTextblockBacking(this.sewnBacking,rig,d.h);
     const wantedMap=q>.92?null:this.materials.spine;
     if(this.spine.material.map!==wantedMap){
       this.spine.material.map=wantedMap;
       this.spine.material.needsUpdate=true;
     }
     this.spine.material.color.set(q>.92?0xe4dacf:0xffffff);
-    for(const hb of this.headbands)updateEndband(hb,rig);
+    for(const hb of this.headbands){
+      updateEndband(hb,rig);
+      hb.visible=rig.q<.08; // hidden in reading view
+    }
     this.root.rotation.x=-q*Math.PI/2;
     this.root.position.x=-(1-q)*d.w/2;
     this.root.position.z=0;

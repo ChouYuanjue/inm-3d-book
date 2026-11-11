@@ -26,7 +26,7 @@ export class SignatureRig {
     this.split=clamp(Math.round(spread/this.sourceTotal*this.total),0,this.total);
     this.position=this.split/this.total;
     this.q=clamp(q,0,1);
-    this.openAngle=clamp(openAngle,105,174);
+    this.openAngle=clamp(openAngle,90,145);
     this.caliper=d.t/this.total;
     // Radius describes the spine's backbend, NOT the thickness of a page.
     // The neutral arc moves toward whichever side is carrying more sheets.
@@ -35,8 +35,21 @@ export class SignatureRig {
     this.radius=d.t*(.38+.075*balance)*angleFactor;
     this.angularSpread=(1.50+.80*balance)*(0.89+.11*(this.openAngle/154));
     this.spineBase=-d.t/2-d.board*.9-.084;
-    this.boardTilt=(180-this.openAngle)*pi/180*.19;
-    this.outerDrop=d.w*Math.sin(this.boardTilt);
+    // An actual thick casebound volume needs a V-supported opening:
+    // the boards cannot lie flat while the textblock remains sewn.
+    // Split-dependent asymmetry mirrors the different weight on each side.
+    const halfOpening=(180-this.openAngle)*pi/360;
+    const bias=(.5-this.position)*.15;
+    this.leftTilt=clamp(halfOpening+bias,.18,1.10);
+    this.rightTilt=clamp(halfOpening-bias,.18,1.10);
+    this.boardTilt=halfOpening;
+    this.outerRiseLeft=(d.w-.08)*Math.sin(this.leftTilt);
+    this.outerRiseRight=(d.w-.08)*Math.sin(this.rightTilt);
+    this.outerDrop=0;
+    // Reserved curvature near the sewing fold. The actual PDF text is
+    // read at full resolution in the inspector, outside this bound area.
+    this.gutterSafeFraction=clamp(.075+(180-this.openAngle)/360*.16+
+      d.t/d.w*.025,.08,.14);
   }
   signatureBounds(signature,side){
     const start=signature*LEAVES_PER_SIGNATURE;
@@ -59,10 +72,12 @@ export class SignatureRig {
     // hinge. Early pages lean to the right, late pages lean to the left.
     const phase=this.angularSpread*(s-this.position);
     const ox=this.radius*Math.sin(phase);
-    // Vertical roll is less than lateral hinge travel: an overly deep
-    // U pushed remote signatures *above* the current page near the gutter.
-    const roll=.58+.10*(1-Math.sin(pi*this.position));
-    const oz=this.spineBase+this.radius*roll*(1-Math.cos(phase));
+    // The TEXTBLOCK spine throws UP into an arch as a sewn book opens;
+    // it must not sag down into the case's U. The sewn folds distribute
+    // across this concave (when viewed from the open book) back arc.
+    // Book Conservation literature calls this the "throw-up" of the spine.
+    const rise=.54+.12*Math.sin(pi*this.position);
+    const oz=this.spineBase+this.radius*rise*Math.cos(phase);
     return {
       x:lerp(cx,ox,this.q),
       z:lerp(cz,oz,this.q),
@@ -78,10 +93,15 @@ export class SignatureRig {
   spinePoint(s){
     const h=this.hingeAtFraction(s);
     const outwardClosed=.047+.013*Math.sin(pi*s);
-    const clearanceOpen=.078+.01*Math.sin(pi*s);
+    // The independent HOLLOW CASE back stays low and curves in the
+    // opposite direction. The gap below the raised textblock is real space
+    // between two different surfaces, not a zero-thickness wedge.
+    const phase=this.angularSpread*(s-this.position);
+    const hollowZ=this.spineBase-.057+
+      this.radius*.40*(1-Math.cos(phase));
     return {
       x:lerp(h.closedX-outwardClosed,h.openX,this.q),
-      z:lerp(h.closedZ,h.openZ-clearanceOpen,this.q)
+      z:lerp(h.closedZ,hollowZ,this.q)
     };
   }
   /** x,y,z surface location for a *physical* sheet, in book coordinates. */
@@ -93,16 +113,29 @@ export class SignatureRig {
     // A right stack is indexed from its top toward the bottom. The left
     // stack is indexed from its bottom toward its top.
     const layer=side==='left'?idx+.5:this.total-idx-.5;
-    const openForeZ=-t/2+layer*this.caliper-this.outerDrop;
+    const rising=side==='left'?this.outerRiseLeft:this.outerRiseRight;
+    // The fore-edge is raised by the physical board V-angle, with the
+    // signature's own leaf-stack thickness preserved. The previous sign
+    // error dropped the outer edge and fabricated knife-shaped wedges.
+    const openForeZ=-t/2+layer*this.caliper+rising;
     const closedForeZ=t/2-(idx+.5)*this.caliper;
     const closedX=lerp(p.closedX,w-.018,U);
     const openX=lerp(p.openX,(side==='left'?-1:1)*(w-.018),U);
     // Curvature starts steeply beside each section's sewing fold, gradually
     // relaxes outward. The root NEVER loses the signatures' thickness.
-    const bend=Math.sin(pi*.5*Math.pow(U,.63));
+    // Finite slope at BOTH ends: the old pow(U,.63) had an infinite
+    // derivative at the sewn fold and produced the visible sharp cusp.
+    // This rounded shoulder unwinds into a gently inclined outer leaf.
+    // A thick sewn signature cannot make a knife-edge at the gutter.
+    // A cubic shoulder and a quadratic fore-edge term give zero first
+    // derivative at the fold and a finite tilted tangent at the free edge.
+    const smoothShoulder=U*U*(3-2*U);
+    const bend=.58*smoothShoulder+.42*U*U;
     const bow=Math.sin(pi*U)*(0.006+
       0.004*Math.cos(idx*.24))*Math.sin(V*pi);
-    const openZ=lerp(p.openZ,openForeZ,bend)+bow;
+    const localRoll=.024*Math.sin(pi*U)**2*
+      (1-.35*Math.abs(this.position-.5));
+    const openZ=lerp(p.openZ,openForeZ,bend)+bow+localRoll;
     const closedZ=lerp(p.closedZ,closedForeZ,U);
     const y=(V-.5)*(h-.072);
     const irregularity=this.q*.0012*Math.sin(idx*.87+V*13)*Math.sin(pi*U);
@@ -139,9 +172,7 @@ export class SignatureRig {
       lowest=Math.min(lowest,p.z);
     }
     const a=this.getBoardAnchor('left'),b=this.getBoardAnchor('right');
-    lowest=Math.min(lowest,
-      a.z-this.d.board/2-this.outerDrop-this.d.board*.3,
-      b.z-this.d.board/2-this.outerDrop-this.d.board*.3);
+    lowest=Math.min(lowest,a.z-this.d.board,b.z-this.d.board);
     return lowest;
   }
   analyze(){
@@ -152,6 +183,9 @@ export class SignatureRig {
       split:this.split,
       position:this.position,
       radius:this.radius,
+      halfOpening:this.boardTilt,
+      coverInclinations:{left:this.leftTilt,right:this.rightTilt},
+      gutterSafeFraction:this.gutterSafeFraction,
       signatureInMiddle:{
         left:this.signatureBounds(middle,'left'),
         right:this.signatureBounds(middle,'right')

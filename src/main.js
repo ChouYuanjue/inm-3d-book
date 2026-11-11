@@ -21,7 +21,7 @@ const FORMATS = {
 const SOURCE_PAGES=1248;
 const state={
   pages:SOURCE_PAGES, sourcePages:SOURCE_PAGES, caliper:.10,
-  format:'a4', binding:'hardcover', openAngle:154,
+  format:'a4', binding:'hardcover', openAngle:120,
   title:'Informal Notes on Mathematics', author:'Runnel Zhang', ink:'#07508a',
   open:false, spread:0, currentPage:1, isMoving:false, flip:null,
   coverProgress:0, coverTarget:0, coverUpload:null
@@ -351,10 +351,14 @@ function updateFlipSurface(f,amount){
     const b=f.poseTo.sheetPoint(f.leaf,f.toSide,u,v);
     // The sheet remains rooted in its own signature fold. The outer edge
     // rises into a standing curved leaf before settling on the opposite stack.
+    const arc=Math.sin(Math.PI*u);
+    // Leaf flexes SIDEWAYS during the turn. Without this bow every sheet
+    // was a rigid, razor-thin vertical blade at the animation midpoint.
     const x=THREE.MathUtils.lerp(a.x,b.x,amount)+
-      lift*.045*Math.sin(Math.PI*u)*(v-.5);
+      lift*(f.dir>0?1:-1)*.22*arc+
+      lift*.044*arc*(v-.5);
     const z=THREE.MathUtils.lerp(a.z,b.z,amount)+
-      lift*(w*.83*u+.085*Math.sin(Math.PI*u));
+      lift*(w*.80*u+.18*arc);
     const y=THREE.MathUtils.lerp(a.y,b.y,amount)+
       lift*.023*Math.sin(Math.PI*u)*Math.sin(v*Math.PI);
     positions.setXYZ(i,x,y,z+.004);
@@ -380,23 +384,39 @@ async function flipPage(dir){
     if(!state.isMoving||!state.open){state.isMoving=false;return;}
     const geom=new THREE.PlaneGeometry(1,1,48,12);
     const original=Float32Array.from(geom.attributes.position.array);
+    const fromSide=dir>0?'right':'left',toSide=dir>0?'left':'right';
+    const poseFrom=new SignatureRig(geometryParams,state.sourcePages,current,1,state.openAngle,state.pages);
+    const poseTo=new SignatureRig(geometryParams,state.sourcePages,next,1,state.openAngle,state.pages);
+    // The real sewing fold reserves an unprinted gutter even while
+    // the page arches vertically. It is invisible in the book display.
+    const safe=poseFrom.gutterSafeFraction;
+    const attrUV=geom.attributes.uv;
+    const vertexColors=new Float32Array(attrUV.count*3);
+    for(let i=0;i<attrUV.count;i++){
+      const u=dir>0?original[3*i]+.5:.5-original[3*i];
+      const sourceU=.085+.915*Math.max(0,(u-safe)/(1-safe));
+      attrUV.setX(i,dir>0?sourceU:1-sourceU);
+      const t=Math.min(1,u/(safe*1.8)),e=t*t*(3-2*t),shade=.83+.17*e;
+      vertexColors[3*i]=shade;
+      vertexColors[3*i+1]=shade*.997;
+      vertexColors[3*i+2]=shade*.985;
+    }
+    attrUV.needsUpdate=true;
+    geom.setAttribute('color',new THREE.BufferAttribute(vertexColors,3));
     const backMap=back.clone();
     backMap.wrapS=THREE.RepeatWrapping;backMap.repeat.x=-1;backMap.offset.x=1;
     backMap.needsUpdate=true;
     const frontMat=new THREE.MeshStandardMaterial({
-      map:front,roughness:.98,side:THREE.FrontSide
+      map:front,roughness:.98,side:THREE.FrontSide,vertexColors:true
     });
     const backMat=new THREE.MeshStandardMaterial({
-      map:backMap,roughness:.98,side:THREE.BackSide
+      map:backMap,roughness:.98,side:THREE.BackSide,vertexColors:true
     });
     const group=new THREE.Group();
     const frontMesh=new THREE.Mesh(geom,frontMat);
     const backMesh=new THREE.Mesh(geom,backMat);
     frontMesh.frustumCulled=false;backMesh.frustumCulled=false;
     group.add(frontMesh,backMesh);bookRoot.add(group);
-    const fromSide=dir>0?'right':'left',toSide=dir>0?'left':'right';
-    const poseFrom=new SignatureRig(geometryParams,state.sourcePages,current,1,state.openAngle,state.pages);
-    const poseTo=new SignatureRig(geometryParams,state.sourcePages,next,1,state.openAngle,state.pages);
     const f={
       group,geometry:geom,basePositions:original,frontMat,backMat,
       poseFrom,poseTo,fromSide,toSide,leaf:dir>0?current:current-1,
@@ -470,7 +490,7 @@ function focusView(view){
     // and two stacks are visible in cross-section rather than from overhead.
     if(view==='spine')destination=new THREE.Vector3(-.55,worldRootY+1.45,-8.5);
     else if(view==='pages')destination=new THREE.Vector3(.2,worldRootY+8.5,2.0);
-    else if(view==='read')destination=new THREE.Vector3(-1.25,worldRootY+5.35,3.65);
+    else if(view==='read')destination=new THREE.Vector3(-1.5,worldRootY+6.65,5.1);
     else destination=new THREE.Vector3(-2.3,worldRootY+4.8,5.8);
   }
   const width=host.clientWidth,height=host.clientHeight;
