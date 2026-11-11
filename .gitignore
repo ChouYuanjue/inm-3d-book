@@ -10,4 +10,6 @@ view-qa-*.png
 look-qa-*.jpg
 preview-qa-*.jpg
 preview-head-*.jpg
+asset-research/
 __pycache__/
+experiments/
