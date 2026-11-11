@@ -1,6 +1,19 @@
-// Original, deterministic artwork drawn with Canvas 2D.
-// The ivory cloth, black lettering, blue classical emblem and vertical spine
-// follow the user's visual reference, without copying or claiming AMS branding.
+// Perspective-corrected artwork extracted from the supplied book reference.
+const referenceArtwork = {};
+await Promise.all(['front','spine'].map(async face => {
+  const image = new Image();
+  image.src = import.meta.env.BASE_URL + 'reference-' + face + '.jpg';
+  await image.decode();
+  referenceArtwork[face] = image;
+}));
+function referenceCanvas(face,width,height) {
+  const c=canvas(width,height);
+  c.getContext('2d').drawImage(referenceArtwork[face],0,0,width,height);
+  return c;
+}
+function isReference(title,author,ink) {
+  return title===DEFAULT_TITLE && author==='Runnel Zhang' && ink==='#07508a';
+}
 const DEFAULT_TITLE = 'Informal Notes on Mathematics';
 
 function canvas(width, height) {
@@ -73,6 +86,7 @@ function fittedTitleLines(title) {
   return [words.slice(0,mid).join(' '),words.slice(mid).join(' ')];
 }
 export function makeFrontCover({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a'}={}) {
+  if(isReference(title,author,ink))return referenceCanvas('front',1200,1680);
   const c=canvas(1200,1680),ctx=c.getContext('2d');
   paper(ctx,1200,1680);
   // Bespoke INM imprint, deliberately distinct from a society mark.
@@ -107,6 +121,7 @@ export function makeFrontCover({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#
   return c;
 }
 export function makeSpine({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a'}={}) {
+  if(isReference(title,author,ink))return referenceCanvas('spine',340,1700);
   const c=canvas(340,1700),ctx=c.getContext('2d');
   paper(ctx,c.width,c.height);
   // Hinged bookcloth relief near either edge.
@@ -128,18 +143,9 @@ export function makeSpine({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508
   ctx.font='bold 24px Georgia,serif';ctx.textAlign='center';ctx.fillStyle='#27353b';ctx.fillText('INM',c.width/2,1590);
   return c;
 }
-export function makeBack({title=DEFAULT_TITLE,author='Runnel Zhang',ink='#07508a'}={}) {
+export function makeBack() {
   const c=canvas(1200,1680),ctx=c.getContext('2d');
-  paper(ctx,1200,1680);
-  ctx.globalAlpha=.09;temple(ctx,610,1070,365,ink);ctx.globalAlpha=1;
-  ctx.fillStyle='#20333c';ctx.font='bold 34px Georgia,serif';
-  ctx.fillText('INFORMAL NOTES ON MATHEMATICS',115,180);
-  ctx.fillStyle='#586366';ctx.font='26px Georgia,serif';
-  ctx.fillText('A collection of mathematical explorations',115,244);
-  ctx.fillText('and informal notes.',115,292);
-  ctx.fillStyle='#20333c';ctx.font='bold 25px Arial,serif';
-  ctx.fillText(author,115,1520);
-  ctx.strokeStyle='#2d6285';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(115,1471);ctx.lineTo(1065,1471);ctx.stroke();
+  ctx.drawImage(referenceArtwork.front,40,450,280,250,0,0,1200,1680);
   return c;
 }
 export function makeEdge() {

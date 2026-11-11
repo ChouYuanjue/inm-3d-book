@@ -49,7 +49,7 @@ controls.enableDamping=true;controls.dampingFactor=.055;
 controls.enablePan=false;controls.minDistance=3.3;controls.maxDistance=35;
 controls.maxPolarAngle=Math.PI*.91;
 controls.minPolarAngle=Math.PI*.11;
-camera.position.set(-3.15,1.38,7.85);
+camera.position.set(-4.5,.3,6.2);
 controls.target.set(-.13,.03,0);
 controls.update();
 
@@ -108,7 +108,7 @@ function makeMats() {
   clothBump=canvasTexture(makeClothBump());
   clothBump.wrapS=THREE.RepeatWrapping;clothBump.wrapT=THREE.RepeatWrapping;
   clothBump.repeat.set(4,4);
-  frontMaterial=new THREE.MeshStandardMaterial({map:coverTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.91,metalness:0});
+  frontMaterial=new THREE.MeshStandardMaterial({map:coverTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.91,metalness:0,emissive:0xffffff,emissiveMap:coverTexture,emissiveIntensity:.16});
   spineMaterial=new THREE.MeshStandardMaterial({map:spineTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
   backMaterial=new THREE.MeshStandardMaterial({map:backTexture,bumpMap:clothBump,bumpScale:.0016,roughness:.93,metalness:0});
   insideMaterial=new THREE.MeshStandardMaterial({color:'#e7e1d4',roughness:1});
@@ -220,7 +220,7 @@ function applyCover() {
   if(spineTexture)spineTexture.dispose();
   if(backTexture)backTexture.dispose();
   coverTexture=freshFront;spineTexture=freshSpine;backTexture=freshBack;
-  frontMaterial.map=coverTexture;spineMaterial.map=spineTexture;backMaterial.map=backTexture;
+  frontMaterial.map=coverTexture;frontMaterial.emissiveMap=coverTexture;spineMaterial.map=spineTexture;backMaterial.map=backTexture;
   frontMaterial.needsUpdate=true;spineMaterial.needsUpdate=true;backMaterial.needsUpdate=true;
   if(state.coverUpload)frontMaterial.map=state.coverUpload;
   if(bookMechanics){
@@ -494,7 +494,7 @@ function focusView(view){
   if(!opened){
     if(view==='spine')destination=new THREE.Vector3(-5.1,1.5,5.0);
     else if(view==='pages')destination=new THREE.Vector3(3.6,3.4,6.0);
-    else destination=new THREE.Vector3(-3.0,1.35,7.7);
+    else destination=new THREE.Vector3(-4.5,.3,6.2);
   }else{
     // Look toward the head of the book so the bowed case spine, shoulders,
     // and two stacks are visible in cross-section rather than from overhead.

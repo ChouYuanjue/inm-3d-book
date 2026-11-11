@@ -18,7 +18,7 @@ The studio uses the current compiled **1,248-page PDF**, rather than splitting t
 - Customize the cover title, author, and blue ink; upload a replacement front-cover image or PDF.
 - Import a different reading-copy PDF locally, or download a PNG render of the physical book.
 
-The preloaded cover artwork is an original Canvas 2D reconstruction of the user's ivory-and-blue hardcover reference. It is neither a generative image output nor an AMS publication.
+The default front cover and spine use perspective-corrected artwork extracted directly from the supplied ivory-and-blue book photograph, preserving its lettering, emblem and cloth texture. The case joints use continuous cloth surfaces; the back uses blank matching cloth.
 
 ## Development
 

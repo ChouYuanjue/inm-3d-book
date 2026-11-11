@@ -445,6 +445,15 @@ export class HardcoverMechanics{
       this.own(mat(0xc7bcaa,{side:THREE.DoubleSide,roughness:1})));
     this.sewnBacking.frustumCulled=false;
     this.spine.frustumCulled=false;
+    // Flexible bookcloth joins the spine shell to the cover boards.
+    // Closing the case must not leave a strip of background at each hinge.
+    this.caseJoints=['left','right'].map(side=>{
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(12),3));
+      g.setIndex([0,1,2,0,2,3]);
+      const mesh=this.make(g,this.own(mat(0xd8d1c1,{side:THREE.DoubleSide})));
+      mesh.frustumCulled=false; return {side,mesh};
+    });
     this.headbands=[];
     for(const sign of [-1,1]){
       const b=makeEndband(null,h,sign);
@@ -485,6 +494,18 @@ export class HardcoverMechanics{
     this.backPivot.rotation.y=-rig.q*rig.rightTilt;
     this.frontPastedown.visible=rig.q>.03;
     this.backPastedown.visible=rig.q>.03;
+    for(const {side,mesh} of this.caseJoints){
+      const isFront=side==='left';
+      const a=rig.spinePoint(isFront?0:1),p=isFront?this.frontPivot:this.backPivot;
+      const zOffset=(isFront?1:-1)*d.board/2;
+      const bx=p.position.x+Math.sin(p.rotation.y)*zOffset;
+      const bz=p.position.z+Math.cos(p.rotation.y)*zOffset;
+      const hh=d.h/2+d.overhang;
+      const v=mesh.geometry.attributes.position;
+      v.setXYZ(0,a.x,-hh,a.z);v.setXYZ(1,bx,-hh,bz);
+      v.setXYZ(2,bx,hh,bz);v.setXYZ(3,a.x,hh,a.z);
+      v.needsUpdate=true;mesh.geometry.computeVertexNormals();mesh.geometry.computeBoundingSphere();
+    }
     updateSpine(this.spine,rig,d.h,d.overhang);
     updateTextblockBacking(this.sewnBacking,rig,d.h);
     const wantedMap=q>.92?null:this.materials.spine;
