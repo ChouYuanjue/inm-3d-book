@@ -39,7 +39,7 @@ Copy-Item E:\\INM-TeX\\inm.pdf public\\inm.pdf
 npm run build
 ```
 
-The default 3D view loads pre-rendered WebP pages through byte-range requests and prefetches adjacent leaves. The original PDF loads on demand for the full-resolution reader. Uploaded PDFs retain local PDF rendering. Regenerate the preview packs whenever the source PDF changes.
+The default 3D view loads 1100-pixel WebP pages through coalesced byte-range requests and prefetches adjacent leaves. Its index is bundled with the app, avoiding a cold index request. Page turns start immediately with cached or neutral paper textures and update as images arrive; image loading never pauses the 3D renderer. The original PDF loads on demand for the full-resolution reader. Uploaded PDFs retain local PDF rendering. Regenerate the preview packs whenever the source PDF changes.
 
 The Vite static build is copied to `docs/`, with GitHub Pages configured for `main:/docs`. On machines where normal Git pushes fail, the standalone `scripts/publish.py` uses the GitHub Git Data API through the local authenticated `gh` CLI, reusing previously uploaded PDF blobs.
 
@@ -50,3 +50,4 @@ Resting sheets and turning sheets share an arc-length cross-section. The resting
 The book-block thickness is `ceil(pages/2) × paper caliper` approximately; the visual model estimates cover board and overhang independently. Its default caliper is 0.10 mm, resulting in a 62.4 mm book block for 1,248 printed pages. Exact manufacturing requirements depend on actual stock, grain, swell, imposition, and binding. The simulation is a visual proof, not a printer-supplied cover template.
 
 The binding model has **one continuous, compact case spine** that does not unfold with the leaves. Two independent cover-board hinges move the covers, while the text-block leaves fan out into a rounded gutter. Paper edges have dynamically shaped, finely layered surfaces at the head, tail and fore edge, and the cloth has a small deterministic woven bump texture. Opening the book changes both geometry and the whole book's viewing orientation; page count controls the actual visual left/right stack balance. This is an illustrative mechanical mockup, not a validated bindery model or a photorealistic scan. Actual bending depends on paper grain, signature sewing, rounding/backing, adhesive and casing. To keep rendering responsive, only active PDF pages and the turning leaf use page textures; the rest of the book is represented by aggregated signature masses and fine laminated cut surfaces.
+

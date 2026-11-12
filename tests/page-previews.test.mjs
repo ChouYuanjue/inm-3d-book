@@ -34,3 +34,31 @@ test('a truncated preview fails explicitly so the caller can use the original PD
  const store=new PagePreviewPacks('/previews/',fake);
  await assert.rejects(store.blob(1),/Truncated/);
 });
+
+test('bundled index and adjacent pages need only one network round trip',async()=>{
+ const calls=[];let release;
+ const fake=async(url,options)=>{
+  calls.push({url,range:options.headers.Range});
+  await new Promise(resolve=>{release=resolve;});
+  return new Response(data.slice(8),{status:206});
+ };
+ const store=new PagePreviewPacks('/previews/',fake,index);
+ const pages=Promise.all([store.blob(1),store.blob(2)]);
+ await new Promise(resolve=>setTimeout(resolve,15));
+ assert.deepEqual(calls,[{url:'/previews/p.bin',range:'bytes=8-13'}]);
+ release();
+ const [a,b]=await pages;
+ assert.deepEqual([...new Uint8Array(await a.arrayBuffer())],[1,2,3]);
+ assert.deepEqual([...new Uint8Array(await b.arrayBuffer())],[4,5,6]);
+ assert.equal(store.stats.requests,1);
+});
+
+test('failed byte ranges are retryable rather than poisoning the page cache',async()=>{
+ let attempt=0;
+ const fake=async()=>++attempt===1?new Response('',{status:503}):new Response(data.slice(8,11),{status:206});
+ const store=new PagePreviewPacks('/previews/',fake,index);
+ await assert.rejects(store.blob(1),/unavailable/);
+ assert.deepEqual([...new Uint8Array(await (await store.blob(1)).arrayBuffer())],[1,2,3]);
+ assert.equal(attempt,2);
+});
+

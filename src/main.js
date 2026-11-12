@@ -8,6 +8,7 @@ import { HardcoverMechanics } from './binding.js';
 import { SignatureRig } from './signature-rig.js';
 import { TurningLeaf } from './turning-leaf.js';
 import { PagePreviewPacks } from './page-previews.js';
+import pagePreviewIndex from './page-preview-index.json';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
@@ -30,11 +31,12 @@ const state={
 };
 let pdfDoc=null,pdfPromise=null,pdfSource=null;
 let renderToken=0;
-const pageCache=new Map();
+const pageCache=new Map(),readyPages=new Map();
+let pageSourceVersion=0;
 const MAX_CACHED_PAGES=window.innerWidth<760?8:12;
 const pageTiming={};
 let pagesPendingTicket=0;
-const previewPacks=new PagePreviewPacks(import.meta.env.BASE_URL+'page-previews/');
+const previewPacks=new PagePreviewPacks(import.meta.env.BASE_URL+'page-previews/',fetch,pagePreviewIndex);
 let usePagePreviews=true,previewUnavailable=false,prefetchTimer=null;
 const host=$('canvasHost');
 const scene=new THREE.Scene();
@@ -272,7 +274,7 @@ function loadPdf(input,{isDefault=false}={}){
   usePagePreviews=isDefault;
   if(!isDefault){
   pageCache.forEach(p=>p.then(t=>{if(t&&t!==placeholderTexture)t.dispose();}).catch(()=>{}));
-  pageCache.clear();renderToken++;
+  pageCache.clear();readyPages.clear();pageSourceVersion++;renderToken++;
   }
   pdfDoc=null;
   $('pdfState').textContent='Loading PDF…';
@@ -319,13 +321,18 @@ async function renderPdfTexture(number){
 function pageTexture(number){
   if(!number || number<1 || number>state.sourcePages)return Promise.resolve(placeholderTexture);
   if(pageCache.has(number))return pageCache.get(number);
+  const sourceVersion=pageSourceVersion;
   const promise=(async()=>{
     if(usePagePreviews&&!previewUnavailable){
       try{return await previewTexture(number);}
-      catch(error){previewUnavailable=true;console.warn('Using PDF fallback for page previews',error);}
+      catch(error){console.warn('Using PDF fallback for page previews',error);}
     }
     return renderPdfTexture(number);
-  })().catch(err=>{
+  })().then(tex=>{
+    if(sourceVersion!==pageSourceVersion){if(tex!==placeholderTexture)tex.dispose();return placeholderTexture;}
+    if(pageCache.get(number)===promise)readyPages.set(number,tex);return tex;
+  }).catch(err=>{
+    if(pageCache.get(number)===promise)pageCache.delete(number);
     console.warn('Could not render page',number,err);return placeholderTexture;
   });
   pageCache.set(number,promise);
@@ -333,18 +340,19 @@ function pageTexture(number){
     for(const [key,value] of pageCache){
       if(pageCache.size<=MAX_CACHED_PAGES)break;
       if(Math.abs(key-state.spread*2-1)>4){
-        pageCache.delete(key);value.then(tex=>{if(tex!==placeholderTexture)tex.dispose();}).catch(()=>{});
+        pageCache.delete(key);readyPages.delete(key);value.then(tex=>{if(tex!==placeholderTexture)tex.dispose();}).catch(()=>{});
       }
     }
   }
   return promise;
 }
+function cachedPageTexture(number){return readyPages.get(number)||placeholderTexture;}
 function prefetchNeighbors(){
   clearTimeout(prefetchTimer);
   const center=state.spread*2+1;
   prefetchTimer=setTimeout(()=>{
     if(!state.open||state.isMoving)return;
-    for(const page of [center+1,center+2,center-2,center-3])if(page>0&&page<=state.sourcePages)pageTexture(page);
+    for(const page of [center+1,center+2,center+3,center+4,center-2,center-3])if(page>0&&page<=state.sourcePages)pageTexture(page);
   },180);
 }
 async function setSpread(index,requestedPage=null){
@@ -360,10 +368,13 @@ async function setSpread(index,requestedPage=null){
   try{
     const lp=state.spread===0?0:state.spread*2;
     const rp=state.spread*2+1;
-    const [left,right]=await Promise.all([pageTexture(lp),pageTexture(rp)]);
+    setTextureOn(parts.leftPage,cachedPageTexture(lp));
+    setTextureOn(parts.rightPage,cachedPageTexture(rp));
+    await Promise.all([[lp,parts.leftPage],[rp,parts.rightPage]].map(async([number,mesh])=>{
+      const tex=await pageTexture(number);
+      if(ticket===renderToken&&!state.flip)setTextureOn(mesh,tex);
+    }));
     if(ticket!==renderToken)return;
-    setTextureOn(parts.leftPage,left);
-    setTextureOn(parts.rightPage,right);
     pageTiming.page=state.currentPage;pageTiming.geometryMs=geometryDone-started;pageTiming.textureMs=performance.now()-geometryDone;pageTiming.totalMs=performance.now()-started;
     pagesPendingTicket=0;
     showLoading('');prefetchNeighbors();
@@ -416,9 +427,7 @@ async function flipPage(dir){
   const reverse=dir>0?first+1:first-1;
   const underneath=dir>0?next*2+1:(next>0?next*2:0);
   try{
-    const [front,back,under]=await Promise.all([
-      pageTexture(first),pageTexture(reverse),pageTexture(underneath)
-    ]);
+    const [front,back,under]=[first,reverse,underneath].map(cachedPageTexture);
     if(!state.isMoving||!state.open){state.isMoving=false;return;}
     const geom=new THREE.PlaneGeometry(1,1,64,16);
     const original=Float32Array.from(geom.attributes.position.array);
@@ -478,6 +487,18 @@ async function flipPage(dir){
     if(dir>0)setTextureOn(parts.rightPage,under);
     else setTextureOn(parts.leftPage,under);
     state.flip=f;showLoading('');
+    const version=pageSourceVersion;
+    for(const [number,role] of [[first,'front'],[reverse,'back'],[underneath,'under']]){
+      pageTexture(number).then(tex=>{
+        if(state.flip!==f||version!==pageSourceVersion)return;
+        if(role==='front'){f.frontMat.map=tex;f.frontMat.needsUpdate=true;}
+        else if(role==='back'){
+          const fresh=tex.clone();fresh.wrapS=THREE.RepeatWrapping;fresh.repeat.x=-1;fresh.offset.x=1;fresh.needsUpdate=true;
+          f.backMat.map.dispose();f.backMat.map=fresh;f.backMat.needsUpdate=true;
+        }else setTextureOn(dir>0?parts.rightPage:parts.leftPage,tex);
+        renderDirty=true;
+      });
+    }
   }catch(err){
     console.error('Page turn failed',err);
     showLoading('Could not turn the page.',true);
@@ -524,7 +545,7 @@ function animate(time){
     if(k>=1)cameraMotion=null;
   }
   const controlsChanged=controls.update();
-  if((renderDirty||controlsChanged)&&(!pagesPendingTicket||userAdjustedView)){renderer.render(scene,camera);renderDirty=false;}
+  if(renderDirty||controlsChanged){renderer.render(scene,camera);renderDirty=false;}
 }
 function focusView(view){
   userAdjustedView=false;
@@ -780,6 +801,8 @@ initBookOutline({baseUrl:import.meta.env.BASE_URL,onJump:navigateToPage});
 updateStats();
 requestAnimationFrame(animate);
 $('pdfState').textContent=mmWord(state.sourcePages)+'-page source';
+// Warm the first turn while the cover is visible; no PDF parse is needed.
+setTimeout(()=>{if(usePagePreviews&&(!state.open||state.spread===0))for(const n of [1,2,3])pageTexture(n);},150);
 setTimeout(()=>{
   const match=location.hash.match(/^#p=(\d+)$/);
   if(match)navigateToPage(Number(match[1]));
