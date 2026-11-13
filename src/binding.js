@@ -565,8 +565,11 @@ export class HardcoverMechanics{
     // Y exposes its inside and crosses the fore-edge over the textblock.
     // +q*(PI+tilt) ended in the SAME pose modulo 2PI, but followed the
     // opposite (outside/backward) arc during the entire opening animation.
-    this.frontPivot.rotation.y=frontCoverYaw(rig.q,rig.leftTilt);
-    this.backPivot.rotation.y=-rig.q*rig.rightTilt;
+    // Quaternion interpolation can represent a yaw beyond 90 degrees as
+    // an XYZ Euler with nonzero X/Z. Reset all axes before setting yaw;
+    // changing only Y would reuse those axes and invert every other landing.
+    this.frontPivot.rotation.set(0,frontCoverYaw(rig.q,rig.leftTilt),0);
+    this.backPivot.rotation.set(0,-rig.q*rig.rightTilt,0);
     this.frontPastedown.visible=rig.q>.03;
     this.backPastedown.visible=rig.q>.03;
     for(const {side,mesh} of this.caseJoints){
@@ -595,7 +598,7 @@ export class HardcoverMechanics{
       updateEndband(hb,rig);
       hb.visible=false; // Keep head/tail cloth free of artificial blue trim.
     }
-    this.root.rotation.x=-q*Math.PI/2;
+    this.root.rotation.set(-q*Math.PI/2,0,0);
     this.root.position.x=-(1-q)*d.w/2;
     this.root.position.z=0;
     const floor=-d.h/2-d.overhang-.020;
