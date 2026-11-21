@@ -489,7 +489,8 @@ export class HardcoverMechanics{
     // gutter vignette through vertex colors.
     const pageMaterial=()=>this.own(new THREE.MeshBasicMaterial({
       map:m.placeholder,color:0xffffff,side:THREE.DoubleSide,
-      vertexColors:true,toneMapped:false
+      vertexColors:true,toneMapped:false,
+      polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1
     }));
     this.leftPage=this.make(createPageGeometry('left'),pageMaterial());
     this.rightPage=this.make(createPageGeometry('right'),pageMaterial());

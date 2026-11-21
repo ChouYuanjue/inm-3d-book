@@ -62,3 +62,22 @@ test('failed byte ranges are retryable rather than poisoning the page cache',asy
  assert.equal(attempt,2);
 });
 
+
+test('page images survive a new reader instance without another byte-range request',async()=>{
+ const entries=new Map();
+ const disk={match:async key=>entries.get(key)?.clone(),put:async(key,value)=>{entries.set(key,value.clone());}};
+ const storage={open:async()=>disk};let calls=0;
+ const fake=async()=>{calls++;return new Response(data.slice(8,11),{status:206});};
+ const first=new PagePreviewPacks('/previews/',fake,index,storage);
+ await first.blob(1);
+ const second=new PagePreviewPacks('/previews/',fake,index,storage);
+ const blob=await second.blob(1);
+ assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())],[1,2,3]);
+ assert.equal(calls,1);assert.equal(second.stats.diskHits,1);
+});
+test('storage denial never blocks network page loading',async()=>{
+ const storage={open:async()=>{throw new Error('quota');}};
+ const store=new PagePreviewPacks('/previews/',async()=>new Response(data.slice(8,11),{status:206}),index,storage);
+ assert.equal((await store.blob(1)).size,3);
+});
+

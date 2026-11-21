@@ -1,11 +1,12 @@
 // Coalesce adjacent pages into one byte-range request. The app supplies the
 // build-time index so a cold page view never waits for an index round trip.
 export class PagePreviewPacks {
-  constructor(baseURL,fetcher=fetch,manifest=null){
+  constructor(baseURL,fetcher=fetch,manifest=null,storage=globalThis.caches){
     this.baseURL=baseURL;this.fetcher=(url,options)=>fetcher.call(globalThis,url,options);
     this.manifest=manifest?Promise.resolve(manifest):null;
     this.packs=new Map();this.slices=new Map();this.pending=new Map();
-    this.stats={requests:0,bytes:0,hits:0};
+    this.stats={requests:0,bytes:0,hits:0,diskHits:0};
+    this.disk=storage?storage.open('inm-page-images-v1').catch(()=>null):Promise.resolve(null);
   }
   async index(){
     if(!this.manifest)this.manifest=this.fetcher(this.baseURL+'index.json',{cache:'force-cache'}).then(async r=>{
@@ -23,6 +24,16 @@ export class PagePreviewPacks {
     if(this.slices.has(sliceKey)){
       this.stats.hits++;return new Blob([await this.slices.get(sliceKey)],{type:'image/webp'});
     }
+    const disk=await this.disk;
+    const diskKey=new URL(this.baseURL+'cached-'+key+'-'+offset+'.webp',globalThis.location?.href||'https://inm.invalid/').href;
+    if(disk){
+      try{
+        const cached=await disk.match(diskKey);
+        if(cached){const bytes=await cached.arrayBuffer();this.slices.set(sliceKey,Promise.resolve(bytes));this.stats.diskHits++;return new Blob([bytes],{type:'image/webp'});}
+      }catch{} // Private browsing and storage quotas must not block reading.
+    }
+    // Recheck after the asynchronous disk lookup to deduplicate callers.
+    if(this.slices.has(sliceKey)){this.stats.hits++;return new Blob([await this.slices.get(sliceKey)],{type:'image/webp'});}
     let task;
     if(this.packs.has(key)){
       this.stats.hits++;
@@ -32,7 +43,7 @@ export class PagePreviewPacks {
       task=new Promise((resolve,reject)=>{
         if(!this.pending.has(key)){
           const queue=[];this.pending.set(key,queue);
-          setTimeout(()=>this.flush(key,queue),0);
+          setTimeout(()=>this.flush(key,queue),8);
         }
         this.pending.get(key).push({offset,length,resolve,reject});
       });
@@ -41,7 +52,9 @@ export class PagePreviewPacks {
     // Failed transfers can be retried; never cache a rejected promise.
     task.catch(()=>{if(this.slices.get(sliceKey)===task)this.slices.delete(sliceKey);});
     while(this.slices.size>24)this.slices.delete(this.slices.keys().next().value);
-    return new Blob([await task],{type:'image/webp'});
+    const bytes=await task;
+    if(disk){try{await disk.put(diskKey,new Response(bytes,{headers:{'Content-Type':'image/webp'}}));}catch{}}
+    return new Blob([bytes],{type:'image/webp'});
   }
   extract(bytes,offset,length){
     if(offset<8||offset+length>bytes.byteLength)throw new Error('Truncated preview pack');

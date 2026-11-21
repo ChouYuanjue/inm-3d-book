@@ -11,11 +11,18 @@ import { PagePreviewPacks } from './page-previews.js';
 import pagePreviewIndex from './page-preview-index.json';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs';
+// The PDF engine is loaded only when opening READ PDF or a custom PDF.
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {makeFrontCover, makeSpine, makeBack, makeEdge, makePlaceholder, makeClothBump} from './cover.js';
 
-GlobalWorkerOptions.workerSrc = pdfWorker;
+let pdfEnginePromise;
+async function openPdf(input){
+  pdfEnginePromise ||= import('pdfjs-dist/build/pdf.mjs').then(engine=>{
+    engine.GlobalWorkerOptions.workerSrc=pdfWorker;return engine;
+  });
+  const engine=await pdfEnginePromise;
+  return engine.getDocument(input).promise;
+}
 const $ = id => document.getElementById(id);
 const FORMATS = {
   a4:[210,297], b5:[176,250], a5:[148,210],
@@ -33,10 +40,10 @@ let pdfDoc=null,pdfPromise=null,pdfSource=null;
 let renderToken=0;
 const pageCache=new Map(),readyPages=new Map();
 let pageSourceVersion=0;
-const MAX_CACHED_PAGES=window.innerWidth<760?8:12;
+const MAX_CACHED_PAGES=window.innerWidth<760?12:16;
 const pageTiming={};
 let pagesPendingTicket=0;
-const previewPacks=new PagePreviewPacks(import.meta.env.BASE_URL+'page-previews/',fetch,pagePreviewIndex);
+const previewPacks=new PagePreviewPacks(import.meta.env.BASE_URL+'page-previews/',fetch,window.innerWidth<760?(pagePreviewIndex.mobile||pagePreviewIndex):pagePreviewIndex);
 let usePagePreviews=true,previewUnavailable=false,prefetchTimer=null;
 const host=$('canvasHost');
 const scene=new THREE.Scene();
@@ -266,8 +273,9 @@ function showLoading(message,short=false){
 }
 function setTextureOn(mesh,tex){
   if(!mesh||!mesh.material)return;
-  mesh.material.map=tex||placeholderTexture;
-  mesh.material.needsUpdate=true;
+  const next=tex||placeholderTexture;
+  if(mesh.material.map===next)return;
+  mesh.material.map=next;
   renderDirty=true;
 }
 function loadPdf(input,{isDefault=false}={}){
@@ -278,8 +286,7 @@ function loadPdf(input,{isDefault=false}={}){
   }
   pdfDoc=null;
   $('pdfState').textContent='Loading PDF…';
-  const task=getDocument(input);
-  pdfPromise=task.promise.then(doc=>{
+  pdfPromise=openPdf(input).then(doc=>{
     pdfDoc=doc;state.sourcePages=doc.numPages;
     $('pdfState').textContent=mmWord(doc.numPages)+'-page source';
     showLoading('',false);
@@ -299,13 +306,24 @@ function ensurePdf(){
   return pdfPromise;
 }
 async function previewTexture(number){
-  const blob=await previewPacks.blob(number),url=URL.createObjectURL(blob);
+  const started=performance.now(),blob=await previewPacks.blob(number),fetched=performance.now();
+  // Decode outside the DOM image pipeline and upload the bitmap directly;
+  // no full-page canvas copy competes with the 3D camera animation.
+  if(typeof createImageBitmap==='function'){
+    const bitmap=await createImageBitmap(blob,{imageOrientation:'flipY',premultiplyAlpha:'none',colorSpaceConversion:'none'});
+    const texture=new THREE.Texture(bitmap);
+    texture.flipY=false;texture.colorSpace=THREE.SRGBColorSpace;
+    texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+    texture.needsUpdate=true;
+    texture.addEventListener('dispose',()=>bitmap.close());
+    pageTiming.lastImage={fetchMs:fetched-started,decodeMs:performance.now()-fetched};
+    return texture;
+  }
+  const url=URL.createObjectURL(blob);
   try{
     const image=new Image();image.src=url;await image.decode();
-    const scale=Math.min(1,(window.innerWidth<760?1100:1600)/image.height);
-    const c=document.createElement('canvas');c.width=Math.round(image.width*scale);c.height=Math.round(image.height*scale);
-    c.getContext('2d',{alpha:false}).drawImage(image,0,0,c.width,c.height);
-    return canvasTexture(c);
+    const texture=new THREE.Texture(image);texture.colorSpace=THREE.SRGBColorSpace;texture.needsUpdate=true;
+    return texture;
   }finally{URL.revokeObjectURL(url);}
 }
 async function renderPdfTexture(number){
@@ -330,21 +348,26 @@ function pageTexture(number){
     return renderPdfTexture(number);
   })().then(tex=>{
     if(sourceVersion!==pageSourceVersion){if(tex!==placeholderTexture)tex.dispose();return placeholderTexture;}
-    if(pageCache.get(number)===promise)readyPages.set(number,tex);return tex;
+    if(pageCache.get(number)===promise)readyPages.set(number,tex);
+    queueMicrotask(prunePageCache);
+    return tex;
   }).catch(err=>{
     if(pageCache.get(number)===promise)pageCache.delete(number);
     console.warn('Could not render page',number,err);return placeholderTexture;
   });
   pageCache.set(number,promise);
-  if(pageCache.size>MAX_CACHED_PAGES){
-    for(const [key,value] of pageCache){
-      if(pageCache.size<=MAX_CACHED_PAGES)break;
-      if(Math.abs(key-state.spread*2-1)>4){
-        pageCache.delete(key);readyPages.delete(key);value.then(tex=>{if(tex!==placeholderTexture)tex.dispose();}).catch(()=>{});
-      }
-    }
-  }
   return promise;
+}
+function prunePageCache(){
+  const pinned=new Set([parts?.leftPage.material.map,parts?.rightPage.material.map,state.flip?.frontMat.map]);
+  for(const [number,promise] of pageCache){
+    if(pageCache.size<=MAX_CACHED_PAGES)break;
+    const texture=readyPages.get(number);
+    // Pending or currently displayed textures must survive prefetch eviction.
+    if(!texture||pinned.has(texture)||Math.abs(number-state.spread*2-1)<=4)continue;
+    pageCache.delete(number);readyPages.delete(number);
+    if(texture!==placeholderTexture)texture.dispose();
+  }
 }
 function cachedPageTexture(number){return readyPages.get(number)||placeholderTexture;}
 function prefetchNeighbors(){
@@ -370,14 +393,12 @@ async function setSpread(index,requestedPage=null){
     const rp=state.spread*2+1;
     setTextureOn(parts.leftPage,cachedPageTexture(lp));
     setTextureOn(parts.rightPage,cachedPageTexture(rp));
-    await Promise.all([[lp,parts.leftPage],[rp,parts.rightPage]].map(async([number,mesh])=>{
-      const tex=await pageTexture(number);
-      if(ticket===renderToken&&!state.flip)setTextureOn(mesh,tex);
-    }));
+    const [left,right]=await Promise.all([pageTexture(lp),pageTexture(rp)]);
     if(ticket!==renderToken)return;
+    if(!state.flip){setTextureOn(parts.leftPage,left);setTextureOn(parts.rightPage,right);}
     pageTiming.page=state.currentPage;pageTiming.geometryMs=geometryDone-started;pageTiming.textureMs=performance.now()-geometryDone;pageTiming.totalMs=performance.now()-started;
     pagesPendingTicket=0;
-    showLoading('');prefetchNeighbors();
+    showLoading('');prefetchNeighbors();prunePageCache();
   }catch(err){if(ticket===renderToken){pagesPendingTicket=0;showLoading('Page preview is temporarily unavailable.',true);}}
 }
 function ease(x){return x*x*(3-2*x);}
@@ -399,22 +420,18 @@ function setCover(open){
 function removeFlip(){
   if(!state.flip)return;
   const f=state.flip;
-  if(f.autoFrame&&f.cameraPosition)camera.position.copy(f.cameraPosition);
   if(f.group.parent)f.group.parent.remove(f.group);
   f.geometry.dispose();
   if(f.backMat.map)f.backMat.map.dispose();
   f.frontMat.dispose();f.backMat.dispose();
   state.flip=null;
+  prunePageCache();
 }
 function updateFlipSurface(f,amount){
   const rig=bookMechanics.applyTurn(f.stationaryPose,amount);
   f.model.writePositions(f.geometry.attributes.position,amount,f.dir,rig);
   f.geometry.computeVertexNormals();f.geometry.computeBoundingSphere();
-  if(f.autoFrame){
-    const direction=f.cameraPosition.clone().sub(f.cameraTarget);
-    camera.position.copy(f.cameraTarget).addScaledVector(direction,1+(f.frameScale-1)*Math.sin(Math.PI*amount));
-    controls.target.copy(f.cameraTarget);
-  }
+
 }
 async function flipPage(dir){
   if(state.isMoving)return;
@@ -454,10 +471,12 @@ async function flipPage(dir){
     backMap.wrapS=THREE.RepeatWrapping;backMap.repeat.x=-1;backMap.offset.x=1;
     backMap.needsUpdate=true;
     const frontMat=new THREE.MeshBasicMaterial({
-      map:front,toneMapped:false,side:THREE.FrontSide,vertexColors:true
+      map:front,toneMapped:false,side:THREE.FrontSide,vertexColors:true,
+      polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2
     });
     const backMat=new THREE.MeshBasicMaterial({
-      map:backMap,toneMapped:false,side:THREE.BackSide,vertexColors:true
+      map:backMap,toneMapped:false,side:THREE.BackSide,vertexColors:true,
+      polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2
     });
     const stationaryPose=bookMechanics.captureTurn(next);
     const model=new TurningLeaf({from:poseFrom,to:poseTo,fromSide,toSide,columns:64,rows:16});
@@ -465,40 +484,22 @@ async function flipPage(dir){
     const frontMesh=new THREE.Mesh(geom,frontMat);
     const backMesh=new THREE.Mesh(geom,backMat);
     frontMesh.frustumCulled=false;backMesh.frustumCulled=false;
+    frontMesh.renderOrder=4;backMesh.renderOrder=4;
     group.add(frontMesh,backMesh);bookRoot.add(group);
     const f={
       group,geometry:geom,basePositions:original,frontMat,backMat,
       poseFrom,poseTo,fromSide,toSide,model,stationaryPose,
-      dir,autoFrame:!userAdjustedView&&!cameraMotion,cameraPosition:camera.position.clone(),cameraTarget:controls.target.clone(),frameScale:1,
+      dir,autoFrame:false,frameScale:1,
       start:performance.now(),lastTime:performance.now(),progress:0,duration:850
     };
-    if(f.autoFrame){
-      camera.updateMatrixWorld(true);bookRoot.updateMatrixWorld(true);
-      for(const t of [.2,.5,.8])for(const row of [0,16]){
-        const points=model.row(row,t);
-        for(const i of [0,16,32,48,64]){
-          const p=points[i],screen=bookRoot.localToWorld(new THREE.Vector3(p.x,p.y,p.z)).project(camera);
-          f.frameScale=Math.max(f.frameScale,Math.abs(screen.x)/.90,Math.abs(screen.y)/.84);
-        }
-      }
-      f.frameScale=Math.min(1.45,f.frameScale);
-    }
     updateFlipSurface(f,0);
     if(dir>0)setTextureOn(parts.rightPage,under);
     else setTextureOn(parts.leftPage,under);
     state.flip=f;showLoading('');
-    const version=pageSourceVersion;
-    for(const [number,role] of [[first,'front'],[reverse,'back'],[underneath,'under']]){
-      pageTexture(number).then(tex=>{
-        if(state.flip!==f||version!==pageSourceVersion)return;
-        if(role==='front'){f.frontMat.map=tex;f.frontMat.needsUpdate=true;}
-        else if(role==='back'){
-          const fresh=tex.clone();fresh.wrapS=THREE.RepeatWrapping;fresh.repeat.x=-1;fresh.offset.x=1;fresh.needsUpdate=true;
-          f.backMat.map.dispose();f.backMat.map=fresh;f.backMat.needsUpdate=true;
-        }else setTextureOn(dir>0?parts.rightPage:parts.leftPage,tex);
-        renderDirty=true;
-      });
-    }
+    // Keep the sheet's texture fixed for its entire flight. Loaded pages
+    // commit on landing instead of flashing onto the moving surface.
+    for(const number of [first,reverse,underneath])pageTexture(number);
+
   }catch(err){
     console.error('Page turn failed',err);
     showLoading('Could not turn the page.',true);
@@ -547,7 +548,7 @@ function animate(time){
   const controlsChanged=controls.update();
   if(renderDirty||controlsChanged){renderer.render(scene,camera);renderDirty=false;}
 }
-function focusView(view){
+function focusView(view,animate=true){
   userAdjustedView=false;
   document.querySelectorAll('.view-button').forEach(x=>x.classList.toggle('active',x.id==='view'+view[0].toUpperCase()+view.slice(1)));
   const d=geometryParams||dims();
@@ -595,6 +596,10 @@ function focusView(view){
     direction.setLength(Math.max(direction.length(),minDist));
     destination=target.clone().add(direction);
   }
+  if(!animate){
+    cameraMotion=null;camera.position.copy(destination);controls.target.copy(target);
+    controls.update();renderDirty=true;return;
+  }
   cameraMotion={
     from:camera.position.clone(),to:destination,
     targetFrom:controls.target.clone(),targetTo:target,
@@ -631,7 +636,7 @@ function navigateToPage(page,{fromInspector=false}={}){
   }
   setSpread(Math.floor(n/2),n);
   showPages(true);
-  focusView('read');
+  focusView('read',false);
   history.replaceState(null,'','#p='+n);
   if(window.matchMedia('(max-width: 760px)').matches){
     $('sidebar').classList.remove('mobile-open');
@@ -646,7 +651,7 @@ function chooseCoverFromBlob(file){
     let image;
     if(file.type==='application/pdf'){
       const blob=new Uint8Array(await file.arrayBuffer());
-      const pdf=await getDocument({data:blob}).promise;
+      const pdf=await openPdf({data:blob});
       const pg=await pdf.getPage(1);
       const vp=pg.getViewport({scale:1.65});
       const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
