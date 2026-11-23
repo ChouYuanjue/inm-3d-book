@@ -73,8 +73,10 @@ controls.addEventListener('start',()=>{
   if(state.flip)state.flip.autoFrame=false;
 });
 
-controls.maxPolarAngle=Math.PI*.91;
-controls.minPolarAngle=Math.PI*.11;
+controls.minPolarAngle=0;
+controls.maxPolarAngle=Math.PI;
+controls.minAzimuthAngle=-Infinity;
+controls.maxAzimuthAngle=Infinity;
 camera.position.set(-5.2,.4,9.3);
 controls.target.set(-.13,.03,0);
 controls.update();
@@ -669,8 +671,7 @@ function navigateToPage(page,{fromInspector=false}={}){
   focusView('read',false);
   history.replaceState(null,'','#p='+n);
   if(window.matchMedia('(max-width: 760px)').matches){
-    $('sidebar').classList.remove('mobile-open');
-    $('toggleSettings').innerHTML='Print settings <span>⌄</span>';
+    setPrintSettings(false);
     window.scrollTo({top:0,behavior:'smooth'});
   }
   return n;
@@ -709,6 +710,12 @@ function saveImage(){
   link.href=canvas.toDataURL('image/png');
   link.download='INM-physical-book-'+(state.open?'open':'cover')+'.png';
   document.body.appendChild(link);link.click();link.remove();
+}
+function setPrintSettings(open){
+  $('sidebar').hidden=!open;
+  $('sidebar').classList.toggle('mobile-open',open);
+  $('toggleSettings').setAttribute('aria-expanded',String(open));
+  $('toggleSettings').innerHTML=open?'Hide print settings <span>⌃</span>':'Print settings <span>⌄</span>';
 }
 function bindUI(){
   const backButton=document.createElement('button');
@@ -771,9 +778,11 @@ function bindUI(){
   $('inspectorOpen').addEventListener('click',()=>inspector?.open(state.currentPage));
   $('inspectorQuick').addEventListener('click',()=>inspector?.open(state.currentPage));
   $('toggleSettings').addEventListener('click',()=>{
-    const el=$('sidebar'),opened=el.classList.toggle('mobile-open');
-    $('toggleSettings').innerHTML=opened?'Hide print settings <span>⌃</span>':'Print settings <span>⌄</span>';
-    if(opened)setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),110);
+    const opened=$('sidebar').hidden;
+    setPrintSettings(opened);
+    if(opened&&window.matchMedia('(max-width:760px)').matches){
+      setTimeout(()=>$('sidebar').scrollIntoView({behavior:'smooth',block:'start'}),110);
+    }
   });
   document.addEventListener('keydown',e=>{
     if(inspector?.visible())return;
@@ -817,7 +826,7 @@ function bindUI(){
     renderer.setSize(w,h,false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.8));
     renderDirty=true;
-    if(w<520 && !state.isMoving && camera.position.length()<10.5){
+    if(w<520 && !state.isMoving && !userAdjustedView && camera.position.length()<10.5){
       camera.position.set(-3.8,1.7,11.8);
       controls.target.set(0,.02,0);
       controls.update();

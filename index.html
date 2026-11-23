@@ -16,7 +16,7 @@
       <div class="topbar-right"><button type="button" class="outline-btn" id="captureBtn"><span class="download-icon">↓</span> Save render</button></div>
     </header>
     <div class="workspace">
-      <aside class="sidebar" id="sidebar">
+      <aside class="sidebar" id="sidebar" hidden>
         <div class="sidebar-content">
 
           <div class="section-heading"><span>PRINT</span><span class="fine-divider"></span></div>
@@ -76,7 +76,7 @@
             <div class="reader-counter"><span class="counter-label" id="counterLabel">CLOSED VOLUME</span><strong id="pageIndicator">1 / 1,248</strong></div>
           </div>
           <div class="loading-msg" id="loadingMsg" role="status" aria-live="polite"></div>
-          <div class="mobile-menu-wrap"><button id="toggleSettings" class="mobile-menu-button" type="button">Print settings <span>⌄</span></button></div>
+          <div class="mobile-menu-wrap"><button id="toggleSettings" class="mobile-menu-button" type="button" aria-controls="sidebar" aria-expanded="false">Print settings <span>⌄</span></button></div>
         </div>
         <div class="main-footer"><span id="scaleDetails">A4 · 210 × 297 mm · 62.4 mm book block</span></div>
       </main>

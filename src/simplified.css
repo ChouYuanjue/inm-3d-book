@@ -46,3 +46,15 @@
 .manipulation-tools button[aria-pressed=true]{background:#254958;color:white}
 .manipulation-tools span{margin-left:4px}.scene-upper-right{max-width:calc(100% - 28px);flex-wrap:wrap}
 @media(max-width:760px){.manipulation-tools{left:12px;bottom:10px}.manipulation-tools span{display:none}.manipulation-tools button{font-size:9px;padding:9px}.scene-upper-right{gap:1px}.scene-upper-right .view-button{padding:8px 6px}}
+
+/* The settings drawer starts closed on every screen size. */
+.mobile-menu-wrap{display:block;position:absolute;z-index:5;right:20px;bottom:15px}
+.mobile-menu-button{border:1px solid #d6d9d2;background:#faf9f5e8;color:#254958;padding:9px 11px;border-radius:3px;font-size:10px;cursor:pointer}
+@media(min-width:761px){
+  .reader-controls{bottom:56px}
+  .reader-navigation{bottom:126px}
+}
+@media(max-width:760px){
+  .mobile-menu-wrap{right:auto;left:50%;bottom:10px;transform:translateX(-50%)}
+  .mobile-menu-button{border:none;background:transparent;padding:0}
+}
