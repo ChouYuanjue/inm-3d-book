@@ -8,10 +8,11 @@ import { HardcoverMechanics } from './binding.js';
 import { SignatureRig } from './signature-rig.js';
 import { TurningLeaf } from './turning-leaf.js';
 import { PagePreviewPacks } from './page-previews.js';
+import { CachedPdfSource, PdfRenderQueue } from './pdf-source.js';
 import pagePreviewIndex from './page-preview-index.json';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-// The PDF engine is loaded only when opening READ PDF or a custom PDF.
+// First paint uses previews; the cached PDF becomes the local rendering source.
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {makeFrontCover, makeSpine, makeBack, makeEdge, makePlaceholder, makeClothBump} from './cover.js';
 
@@ -36,7 +37,9 @@ const state={
   open:false, spread:0, currentPage:1, isMoving:false, flip:null,
   coverProgress:0, coverTarget:0, coverUpload:null
 };
-let pdfDoc=null,pdfPromise=null,pdfSource=null;
+let pdfDoc=null,pdfPromise=null,pdfSource=null,defaultPdfTask=null;
+const readingCopy=new CachedPdfSource(import.meta.env.BASE_URL+'inm.pdf',{revision:pagePreviewIndex.source});
+const pdfRenderQueue=new PdfRenderQueue();
 let renderToken=0;
 const pageCache=new Map(),readyPages=new Map();
 let pageSourceVersion=0;
@@ -284,16 +287,20 @@ function loadPdf(input,{isDefault=false}={}){
   pageCache.forEach(p=>p.then(t=>{if(t&&t!==placeholderTexture)t.dispose();}).catch(()=>{}));
   pageCache.clear();readyPages.clear();pageSourceVersion++;renderToken++;
   }
+  const sourceVersion=pageSourceVersion;
   pdfDoc=null;
   $('pdfState').textContent='Loading PDF…';
   pdfPromise=openPdf(input).then(doc=>{
+    if(sourceVersion!==pageSourceVersion){doc.destroy();return pdfPromise;}
     pdfDoc=doc;state.sourcePages=doc.numPages;
     $('pdfState').textContent=mmWord(doc.numPages)+'-page source';
-    showLoading('',false);
+    if(!isDefault)showLoading('',false);
     updateStats();
     if(state.open&&!isDefault)setSpread(Math.min(state.spread,Math.floor((doc.numPages-1)/2)));
     return doc;
   }).catch(err=>{
+    if(sourceVersion!==pageSourceVersion)return pdfPromise;
+    if(isDefault){pdfPromise=null;$('pdfState').textContent='Page previews available';throw err;}
     $('pdfState').textContent='PDF unavailable';
     showLoading('Unable to load PDF pages. The 3D cover remains available.',true);
     console.error('PDF loading error',err);
@@ -301,10 +308,26 @@ function loadPdf(input,{isDefault=false}={}){
   });
   return pdfPromise;
 }
-function ensurePdf(){
-  if(!pdfPromise)loadPdf({url:import.meta.env.BASE_URL+'inm.pdf',disableAutoFetch:true,rangeChunkSize:262144},{isDefault:true});
-  return pdfPromise;
+function prepareReadingCopy(){
+  if(pdfSource)return pdfPromise;
+  if(!defaultPdfTask){
+    const version=pageSourceVersion;
+    defaultPdfTask=readingCopy.load().then(bytes=>{
+      if(pdfSource||version!==pageSourceVersion)return pdfPromise;
+      if(pdfPromise)return pdfPromise;
+      // PDF.js transfers its input to its worker; retain the cached bytes.
+      return loadPdf({data:bytes.slice()},{isDefault:true});
+    }).then(doc=>{
+      if(!pdfSource&&doc){
+        $('pdfState').textContent=mmWord(doc.numPages)+' pages · reading copy ready';
+        prefetchNeighbors();
+      }
+      return doc;
+    }).catch(error=>{defaultPdfTask=null;throw error;});
+  }
+  return defaultPdfTask;
 }
+function ensurePdf(){return pdfPromise||prepareReadingCopy();}
 async function previewTexture(number){
   const started=performance.now(),blob=await previewPacks.blob(number),fetched=performance.now();
   // Decode outside the DOM image pipeline and upload the bitmap directly;
@@ -326,26 +349,33 @@ async function previewTexture(number){
     return texture;
   }finally{URL.revokeObjectURL(url);}
 }
-async function renderPdfTexture(number){
-  const doc=await ensurePdf();
-  if(number>doc.numPages)return placeholderTexture;
-  const pg=await doc.getPage(number),base=pg.getViewport({scale:1});
-  const viewport=pg.getViewport({scale:Math.min(1.9,(window.innerWidth<760?1100:1600)/base.height)});
-  const c=document.createElement('canvas');c.width=Math.ceil(viewport.width);c.height=Math.ceil(viewport.height);
-  const ctx=c.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
-  await pg.render({canvasContext:ctx,viewport}).promise;
-  pg.cleanup();return canvasTexture(c);
+function renderPdfTexture(number,prefetch=false){
+  const version=pageSourceVersion;
+  return pdfRenderQueue.run(async()=>{
+    if(version!==pageSourceVersion)return placeholderTexture;
+    const doc=await ensurePdf();
+    if(number>doc.numPages)return placeholderTexture;
+    const pg=await doc.getPage(number),base=pg.getViewport({scale:1});
+    const height=usePagePreviews?(window.innerWidth<760?780:1100):(window.innerWidth<760?1100:1600);
+    const viewport=pg.getViewport({scale:Math.min(1.9,height/base.height)});
+    const c=document.createElement('canvas');c.width=Math.ceil(viewport.width);c.height=Math.ceil(viewport.height);
+    const ctx=c.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+    await pg.render({canvasContext:ctx,viewport}).promise;
+    pg.cleanup();
+    pageTiming.localRenders=(pageTiming.localRenders||0)+1;
+    return canvasTexture(c);
+  },prefetch);
 }
-function pageTexture(number){
+function pageTexture(number,prefetch=false){
   if(!number || number<1 || number>state.sourcePages)return Promise.resolve(placeholderTexture);
   if(pageCache.has(number))return pageCache.get(number);
   const sourceVersion=pageSourceVersion;
   const promise=(async()=>{
-    if(usePagePreviews&&!previewUnavailable){
+    if(usePagePreviews&&!pdfDoc&&!previewUnavailable){
       try{return await previewTexture(number);}
       catch(error){console.warn('Using PDF fallback for page previews',error);}
     }
-    return renderPdfTexture(number);
+    return renderPdfTexture(number,prefetch);
   })().then(tex=>{
     if(sourceVersion!==pageSourceVersion){if(tex!==placeholderTexture)tex.dispose();return placeholderTexture;}
     if(pageCache.get(number)===promise)readyPages.set(number,tex);
@@ -375,7 +405,7 @@ function prefetchNeighbors(){
   const center=state.spread*2+1;
   prefetchTimer=setTimeout(()=>{
     if(!state.open||state.isMoving)return;
-    for(const page of [center+1,center+2,center+3,center+4,center-2,center-3])if(page>0&&page<=state.sourcePages)pageTexture(page);
+    for(const page of [center+1,center+2,center+3,center+4,center-2,center-3])if(page>0&&page<=state.sourcePages)pageTexture(page,true);
   },180);
 }
 async function setSpread(index,requestedPage=null){
@@ -808,6 +838,8 @@ requestAnimationFrame(animate);
 $('pdfState').textContent=mmWord(state.sourcePages)+'-page source';
 // Warm the first turn while the cover is visible; no PDF parse is needed.
 setTimeout(()=>{if(usePagePreviews&&(!state.open||state.spread===0))for(const n of [1,2,3])pageTexture(n);},150);
+// Download the complete reading copy once, without blocking the first view.
+setTimeout(()=>prepareReadingCopy().catch(error=>console.warn('Background reading copy deferred',error)),1000);
 setTimeout(()=>{
   const match=location.hash.match(/^#p=(\d+)$/);
   if(match)navigateToPage(Number(match[1]));
@@ -817,5 +849,5 @@ window.__INM_DEBUG__={
   open:()=>setCover(true),close:()=>setCover(false),
   next:()=>flipPage(1),previous:()=>flipPage(-1),
   setPageCount,focusView,jump:navigateToPage,inspect:(n)=>inspector.open(n),
-  mechanics:()=>bookMechanics,pdf:()=>pdfDoc,previews:previewPacks,pageTiming
+  mechanics:()=>bookMechanics,pdf:()=>pdfDoc,previews:previewPacks,readingCopy,prepareReadingCopy,pageTiming
 };

@@ -39,7 +39,9 @@ Copy-Item E:\\INM-TeX\\inm.pdf public\\inm.pdf
 npm run build
 ```
 
-The default 3D view loads 1100-pixel WebP pages (780 pixels on mobile) through coalesced byte-range requests and prefetches adjacent leaves. Its index is bundled with the app, avoiding a cold index request. Individual page images persist in browser Cache Storage, including across reloads. The PDF engine is a separate lazy chunk used only for the inspector and uploaded PDFs. Page turns keep a fixed camera and fixed sheet textures throughout the animation; newly loaded images commit after landing. Visible textures are protected from cache eviction, and separated depth offsets keep the flying leaf above the stationary paper. The original PDF loads on demand for the full-resolution reader. Uploaded PDFs retain local PDF rendering. Regenerate the preview packs whenever the source PDF changes.
+The first view uses compact WebP previews while one complete, versioned 16.4 MB PDF downloads in the background. The PDF is saved in browser Cache Storage and reused on later visits. Once it is ready, uncached 3D pages render locally from that same document, so page navigation no longer requires separate image transfers. Only current and nearby pages are rasterized; a serial render queue prioritizes visible pages over speculative work. The full-resolution reader shares this document. Uploaded PDFs replace the reading source safely, including while the background download is still pending.
+
+Page turns keep a fixed camera and fixed sheet textures throughout the animation; loaded images commit after landing. Visible textures are protected from eviction and separated depth offsets keep the flying leaf above stationary paper. The preview packs remain an immediate first-view and network-failure fallback; regenerate them and the bundled index whenever the source PDF changes.
 
 The Vite static build is copied to `docs/`, with GitHub Pages configured for `main:/docs`. On machines where normal Git pushes fail, the standalone `scripts/publish.py` uses the GitHub Git Data API through the local authenticated `gh` CLI, reusing previously uploaded PDF blobs.
 
