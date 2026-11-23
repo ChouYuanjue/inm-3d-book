@@ -13,7 +13,17 @@
     <header class="topbar">
       <div class="brand-mark" aria-hidden="true"><span>INM</span></div>
       <div class="brand-name">Informal Notes <em>on</em> Mathematics </div>
-      <div class="topbar-right"><button type="button" class="outline-btn" id="captureBtn"><span class="download-icon">↓</span> Save render</button></div>
+      <div class="topbar-right">
+        <details class="view-menu" id="viewMenu">
+          <summary aria-label="View and settings" title="View and settings">⋯</summary>
+          <div class="view-menu-panel">
+            <div class="view-presets"><button id="viewFront" class="view-button active" type="button" title="Front view">Front</button><button id="viewSpine" class="view-button" type="button" title="Spine view">Spine</button><button id="viewPages" class="view-button" type="button" title="Top view">Top</button><button id="viewRead" class="view-button" type="button" title="Reading spread">Spread</button><button id="inspectorQuick" class="view-button read-now" type="button" hidden>Read PDF</button></div>
+            <div id="viewTools"></div>
+            <button type="button" id="captureBtn">Save image</button>
+            <button id="toggleSettings" class="mobile-menu-button" type="button" aria-controls="sidebar" aria-expanded="false">Print settings <span>⌄</span></button>
+          </div>
+        </details>
+      </div>
     </header>
     <div class="workspace">
       <aside class="sidebar" id="sidebar" hidden>
@@ -59,7 +69,7 @@
         <div class="scene-wrap" id="sceneWrap">
           <div class="scene-backdrop" aria-hidden="true"></div>
           <div class="scene-upper-left"><strong id="sceneTitle">Informal Notes on Mathematics</strong><span id="sceneMeta">A4 / HARDCOVER / 1,248 PAGES</span></div>
-          <div class="scene-upper-right"><button id="viewFront" class="view-button active" type="button" title="Front view">FRONT</button><button id="viewSpine" class="view-button" type="button" title="Spine view">SPINE</button><button id="viewPages" class="view-button" type="button" title="Top view">TOP</button><button id="viewRead" class="view-button" type="button" title="Reading spread">SPREAD</button><button id="inspectorQuick" class="view-button read-now" type="button" hidden>READ PDF</button></div>
+
           <div id="canvasHost" aria-label="Interactive 3D model of a hardcover book"></div>
           <div class="scene-drag-note"><span class="orbit-icon">◎</span> ROTATE <span class="small-sep">/</span> ZOOM</div>
           <div class="reader-navigation" id="readerNavigation" hidden>
@@ -73,10 +83,10 @@
             <button id="prevPage" class="arrow-btn" aria-label="Turn backward" type="button">←</button>
             <button id="openBook" class="primary-reader-btn" type="button">Open <span>↗</span></button>
             <button id="nextPage" class="arrow-btn" aria-label="Turn forward" type="button">→</button>
-            <div class="reader-counter"><span class="counter-label" id="counterLabel">CLOSED VOLUME</span><strong id="pageIndicator">1 / 1,248</strong></div>
+            <button class="reader-counter" id="togglePageJump" type="button" aria-controls="readerNavigation" aria-expanded="false" title="Jump to page"><span class="counter-label" id="counterLabel">CLOSED VOLUME</span><strong id="pageIndicator">1 / 1,248</strong></button>
           </div>
           <div class="loading-msg" id="loadingMsg" role="status" aria-live="polite"></div>
-          <div class="mobile-menu-wrap"><button id="toggleSettings" class="mobile-menu-button" type="button" aria-controls="sidebar" aria-expanded="false">Print settings <span>⌄</span></button></div>
+
         </div>
         <div class="main-footer"><span id="scaleDetails">A4 · 210 × 297 mm · 62.4 mm book block</span></div>
       </main>

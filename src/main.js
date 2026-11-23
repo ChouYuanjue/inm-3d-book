@@ -67,7 +67,7 @@ controls.enableDamping=true;controls.dampingFactor=.055;
 controls.enablePan=true;controls.screenSpacePanning=true;
 controls.zoomToCursor=true;controls.panSpeed=.85;
 controls.minDistance=1.6;controls.maxDistance=35;
-let panMode=false,userAdjustedView=false;
+let panMode=false,userAdjustedView=false,pageJumpOpen=false;
 controls.addEventListener('start',()=>{
   cameraMotion=null;userAdjustedView=true;
   if(state.flip)state.flip.autoFrame=false;
@@ -211,7 +211,9 @@ function showPages(open){
   if(!parts)return;
   bookMechanics.render(state.coverProgress,state.spread,state.sourcePages,state.pages,state.openAngle);
   if(!motion){contactShadow.scale.x=open?1.22:.52;contactShadow.scale.y=open?1.10:.48;}
-  $('readerNavigation').hidden=!open;
+  if(!open)pageJumpOpen=false;
+  $('readerNavigation').hidden=!(open&&pageJumpOpen);
+  $('togglePageJump').setAttribute('aria-expanded',String(open&&pageJumpOpen));
   $('sceneWrap').classList.toggle('is-reading',open);
   renderDirty=true;
 }
@@ -249,6 +251,7 @@ function updateStats(){
   $('readerPosition').value=state.currentPage;
   if(document.activeElement!==$('readerPageInput'))$('readerPageInput').value=state.currentPage;
   $('inspectorQuick').hidden=!state.open;
+  $('togglePageJump').disabled=!state.open;
   $('prevPage').disabled=!state.open||state.isMoving||state.spread<=0;
   $('nextPage').disabled=!state.open||state.isMoving||state.spread>=Math.ceil(state.sourcePages/2);
 }
@@ -666,6 +669,7 @@ function navigateToPage(page,{fromInspector=false}={}){
     bookMechanics.render(1,state.spread,state.sourcePages,state.pages,state.openAngle);
     contactShadow.scale.x=1.22;contactShadow.scale.y=1.10;
   }
+  pageJumpOpen=false;
   setSpread(Math.floor(n/2),n);
   showPages(true);
   focusView('read',false);
@@ -720,19 +724,19 @@ function setPrintSettings(open){
 function bindUI(){
   const backButton=document.createElement('button');
   backButton.id='viewBack';backButton.className='view-button';backButton.type='button';
-  backButton.textContent='BACK';backButton.title='Back cover';
+  backButton.textContent='Back';backButton.title='Back cover';
   $('viewSpine').before(backButton);
   backButton.addEventListener('click',()=>{if(state.open)setCover(false);focusView('back');});
   const tools=document.createElement('div');
   tools.className='manipulation-tools';
-  tools.innerHTML='<button id="moveBook" type="button" aria-pressed="false">MOVE</button><button id="resetBookView" type="button">RESET VIEW</button><span>Right-drag to move · Scroll to zoom</span>';
-  $('sceneWrap').append(tools);
+  tools.innerHTML='<button id="moveBook" type="button" aria-pressed="false">Move</button><button id="resetBookView" type="button">Reset view</button>';
+  $('viewTools').append(tools);
   $('moveBook').addEventListener('click',()=>{
     panMode=!panMode;
     controls.mouseButtons.LEFT=panMode?THREE.MOUSE.PAN:THREE.MOUSE.ROTATE;
     controls.touches.ONE=panMode?THREE.TOUCH.PAN:THREE.TOUCH.ROTATE;
     $('moveBook').setAttribute('aria-pressed',String(panMode));
-    $('moveBook').textContent=panMode?'ROTATE':'MOVE';
+    $('moveBook').textContent=panMode?'Rotate':'Move';
     renderer.domElement.style.cursor=panMode?'move':'grab';
   });
   $('resetBookView').addEventListener('click',()=>focusView(state.open?'read':'front'));
@@ -784,7 +788,20 @@ function bindUI(){
       setTimeout(()=>$('sidebar').scrollIntoView({behavior:'smooth',block:'start'}),110);
     }
   });
+  $('togglePageJump').addEventListener('click',()=>{
+    pageJumpOpen=!pageJumpOpen;
+    $('readerNavigation').hidden=!pageJumpOpen;
+    $('togglePageJump').setAttribute('aria-expanded',String(pageJumpOpen));
+    if(pageJumpOpen){$('readerPageInput').focus();$('readerPageInput').select();}
+  });
+  $('viewMenu').addEventListener('click',event=>{
+    if(event.target.closest('button'))$('viewMenu').open=false;
+  });
+  document.addEventListener('click',event=>{
+    if(!$('viewMenu').contains(event.target))$('viewMenu').open=false;
+  });
   document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&$('viewMenu').open){$('viewMenu').open=false;return;}
     if(inspector?.visible())return;
     if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;
     if(e.key==='r'||e.key==='R'){if(state.open)inspector?.open(state.currentPage);}
