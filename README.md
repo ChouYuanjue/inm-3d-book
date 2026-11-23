@@ -8,10 +8,10 @@ The studio uses the current compiled **1,248-page PDF**, rather than splitting t
 
 ## What you can do
 
-- Rotate, orbit and zoom the 3D book with mouse or touch.
+- Rotate the 3D book freely with a trackball, including continuous pole crossings and upside-down views. Pan with right-drag or two fingers; zoom with the wheel or a pinch.
 - Open and close the ivory clothbound cover; turn pages with arrow controls, keyboard, or tapping the corresponding side of the book. Opening changes the model from an upright display to an open volume resting on a table.
 - Browse all **1,645 PDF outline entries** and jump to any bookmark in this one continuous book.
-- Jump directly to a specific printed page or scrub through the manuscript.
+- Scrub through the manuscript with the always-visible progress bar, or click the page count to enter a page number. Changing pages preserves a manually chosen view.
 - Open the high-resolution reading inspector for mathematical notation; enlarge, navigate, and close without leaving the simulation.
 - Share a specific location using a deep link, such as `#p=947`.
 - Change simulated page count, trim size, paper caliper, binding and the **opening angle (105°–174°)**; the 3D book block, visible left/right signature stacks and spine curvature update accordingly.
@@ -52,5 +52,6 @@ Resting sheets and turning sheets share an arc-length cross-section. The resting
 The book-block thickness is `ceil(pages/2) × paper caliper` approximately; the visual model estimates cover board and overhang independently. Its default caliper is 0.10 mm, resulting in a 62.4 mm book block for 1,248 printed pages. Exact manufacturing requirements depend on actual stock, grain, swell, imposition, and binding. The simulation is a visual proof, not a printer-supplied cover template.
 
 The binding model has **one continuous, compact case spine** that does not unfold with the leaves. Two independent cover-board hinges move the covers, while the text-block leaves fan out into a rounded gutter. Paper edges have dynamically shaped, finely layered surfaces at the head, tail and fore edge, and the cloth has a small deterministic woven bump texture. Opening the book changes both geometry and the whole book's viewing orientation; page count controls the actual visual left/right stack balance. This is an illustrative mechanical mockup, not a validated bindery model or a photorealistic scan. Actual bending depends on paper grain, signature sewing, rounding/backing, adhesive and casing. To keep rendering responsive, only active PDF pages and the turning leaf use page textures; the rest of the book is represented by aggregated signature masses and fine laminated cut surfaces.
+
 
 

@@ -57,3 +57,11 @@
   .reader-counter{min-width:88px;padding-left:9px}
   .loading-msg{bottom:127px;white-space:normal}
 }
+
+/* Keep the page scrubber visible while leaving numeric jump controls optional. */
+.reader-controls,.scene-wrap.is-reading .reader-controls{width:min(340px,calc(100% - 28px));flex-wrap:wrap;justify-content:center}
+.reader-progress{flex:0 0 100%;display:flex;align-items:center;padding:1px 5px 4px}
+.reader-progress .reader-position{width:100%;min-width:0;height:15px}
+.reader-navigation{bottom:98px;width:min(310px,calc(100% - 28px))}
+.loading-msg{bottom:151px}
+@media(max-width:760px){.reader-navigation{bottom:95px}.loading-msg{bottom:148px}}

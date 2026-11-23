@@ -74,12 +74,13 @@
           <div class="scene-drag-note"><span class="orbit-icon">◎</span> ROTATE <span class="small-sep">/</span> ZOOM</div>
           <div class="reader-navigation" id="readerNavigation" hidden>
             <span class="reader-nav-caption">PAGE</span>
-            <input type="range" id="readerPosition" class="reader-position" aria-label="Jump through the manuscript" min="1" max="1248" value="1" step="1" />
+
             <input type="number" id="readerPageInput" class="reader-page-input" aria-label="Page number" min="1" max="1248" value="1" step="1" />
             <button id="readerGo" class="reader-nav-go" type="button">GO</button>
             <button id="inspectorOpen" class="reader-inspect-btn" type="button">↗ <span>READ PDF</span></button>
           </div>
           <div class="reader-controls">
+            <div class="reader-progress"><input type="range" id="readerPosition" class="reader-position" aria-label="Jump through the manuscript" min="1" max="1248" value="1" step="1" /></div>
             <button id="prevPage" class="arrow-btn" aria-label="Turn backward" type="button">←</button>
             <button id="openBook" class="primary-reader-btn" type="button">Open <span>↗</span></button>
             <button id="nextPage" class="arrow-btn" aria-label="Turn forward" type="button">→</button>

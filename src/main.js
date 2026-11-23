@@ -11,7 +11,7 @@ import { PagePreviewPacks } from './page-previews.js';
 import { CachedPdfSource, PdfRenderQueue } from './pdf-source.js';
 import pagePreviewIndex from './page-preview-index.json';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { FreeViewControls } from './free-view-controls.js';
 // First paint uses previews; the cached PDF becomes the local rendering source.
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {makeFrontCover, makeSpine, makeBack, makeEdge, makePlaceholder, makeClothBump} from './cover.js';
@@ -61,11 +61,8 @@ renderer.shadowMap.enabled=false; // soft contact shadow is cheaper and cleaner 
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 host.appendChild(renderer.domElement);
 let renderDirty=true;
-const controls=new OrbitControls(camera,renderer.domElement);
+const controls=new FreeViewControls(camera,renderer.domElement);
 controls.addEventListener('change',()=>{renderDirty=true;});
-controls.enableDamping=true;controls.dampingFactor=.055;
-controls.enablePan=true;controls.screenSpacePanning=true;
-controls.zoomToCursor=true;controls.panSpeed=.85;
 controls.minDistance=1.6;controls.maxDistance=35;
 let panMode=false,userAdjustedView=false,pageJumpOpen=false;
 controls.addEventListener('start',()=>{
@@ -73,10 +70,6 @@ controls.addEventListener('start',()=>{
   if(state.flip)state.flip.autoFrame=false;
 });
 
-controls.minPolarAngle=0;
-controls.maxPolarAngle=Math.PI;
-controls.minAzimuthAngle=-Infinity;
-controls.maxAzimuthAngle=Infinity;
 camera.position.set(-5.2,.4,9.3);
 controls.target.set(-.13,.03,0);
 controls.update();
@@ -585,6 +578,7 @@ function animate(time){
 }
 function focusView(view,animate=true){
   userAdjustedView=false;
+  camera.up.set(0,1,0);
   document.querySelectorAll('.view-button').forEach(x=>x.classList.toggle('active',x.id==='view'+view[0].toUpperCase()+view.slice(1)));
   const d=geometryParams||dims();
   const opened=state.open;
@@ -657,6 +651,7 @@ function resetToSource(){setPageCount(state.sourcePages);}
 // A PDF page always belongs to one physical two-page spread. Page 1 is the
 // right-hand recto; page 2 is the first left-hand verso.
 function navigateToPage(page,{fromInspector=false}={}){
+  const preserveView=state.open&&userAdjustedView;
   const n=Math.min(state.sourcePages,Math.max(1,Math.floor(Number(page)||1)));
   if(state.flip)removeFlip();
   motion=null;
@@ -672,7 +667,7 @@ function navigateToPage(page,{fromInspector=false}={}){
   pageJumpOpen=false;
   setSpread(Math.floor(n/2),n);
   showPages(true);
-  focusView('read',false);
+  if(!preserveView)focusView('read',false);
   history.replaceState(null,'','#p='+n);
   if(window.matchMedia('(max-width: 760px)').matches){
     setPrintSettings(false);
@@ -734,7 +729,8 @@ function bindUI(){
   $('moveBook').addEventListener('click',()=>{
     panMode=!panMode;
     controls.mouseButtons.LEFT=panMode?THREE.MOUSE.PAN:THREE.MOUSE.ROTATE;
-    controls.touches.ONE=panMode?THREE.TOUCH.PAN:THREE.TOUCH.ROTATE;
+    controls.oneFingerPan=panMode;
+    controls.noRotate=panMode;
     $('moveBook').setAttribute('aria-pressed',String(panMode));
     $('moveBook').textContent=panMode?'Rotate':'Move';
     renderer.domElement.style.cursor=panMode?'move':'grab';
@@ -841,6 +837,7 @@ function bindUI(){
     const w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;
     camera.aspect=w/h;camera.updateProjectionMatrix();
     renderer.setSize(w,h,false);
+    controls.handleResize();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.8));
     renderDirty=true;
     if(w<520 && !state.isMoving && !userAdjustedView && camera.position.length()<10.5){
