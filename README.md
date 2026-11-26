@@ -4,7 +4,7 @@ An independent, browser-based, print-aware 3D rendering of a **single complete c
 
 **Live site:** https://chouyuanjue.github.io/inm-3d-book/
 
-The studio uses the current compiled **1,308-page PDF**, rather than splitting the document into separately bound volumes.
+The studio uses the current compiled **1,310-page PDF**, rather than splitting the document into separately bound volumes.
 
 ## What you can do
 
@@ -49,7 +49,7 @@ The Vite static build is copied to `docs/`, with GitHub Pages configured for `ma
 
 Resting sheets and turning sheets share an arc-length cross-section. The resting solver derives projected span from paper length and the local support curve; a turning sheet interpolates tangent angles and integrates segment lengths. The stationary stacks transition between their two curved poses during the turn, including their head/tail cuts and hollow fore-edge. Sampled lift-off and landing shapes match their corresponding resting surfaces, and forward/backward turns use the same reversible path.
 
-The book-block thickness is `ceil(pages/2) × paper caliper` approximately; the visual model estimates cover board and overhang independently. Its default caliper is 0.10 mm, resulting in a 65.4 mm book block for 1,308 printed pages. Exact manufacturing requirements depend on actual stock, grain, swell, imposition, and binding. The simulation is a visual proof, not a printer-supplied cover template.
+The book-block thickness is `ceil(pages/2) × paper caliper` approximately; the visual model estimates cover board and overhang independently. Its default caliper is 0.10 mm, resulting in a 65.5 mm book block for 1,310 printed pages. Exact manufacturing requirements depend on actual stock, grain, swell, imposition, and binding. The simulation is a visual proof, not a printer-supplied cover template.
 
 The binding model has **one continuous, compact case spine** that does not unfold with the leaves. Two independent cover-board hinges move the covers, while the text-block leaves fan out into a rounded gutter. Paper edges have dynamically shaped, finely layered surfaces at the head, tail and fore edge, and the cloth has a small deterministic woven bump texture. Opening the book changes both geometry and the whole book's viewing orientation; page count controls the actual visual left/right stack balance. This is an illustrative mechanical mockup, not a validated bindery model or a photorealistic scan. Actual bending depends on paper grain, signature sewing, rounding/backing, adhesive and casing. To keep rendering responsive, only active PDF pages and the turning leaf use page textures; the rest of the book is represented by aggregated signature masses and fine laminated cut surfaces.
 
