@@ -4,13 +4,13 @@ An independent, browser-based, print-aware 3D rendering of a **single complete c
 
 **Live site:** https://chouyuanjue.github.io/inm-3d-book/
 
-The studio uses the current compiled **1,248-page PDF**, rather than splitting the document into separately bound volumes.
+The studio uses the current compiled **1,308-page PDF**, rather than splitting the document into separately bound volumes.
 
 ## What you can do
 
 - Rotate the 3D book freely with a trackball, including continuous pole crossings and upside-down views. Pan with right-drag or two fingers; zoom with the wheel or a pinch.
 - Open and close the ivory clothbound cover; turn pages with arrow controls, keyboard, or tapping the corresponding side of the book. Opening changes the model from an upright display to an open volume resting on a table.
-- Browse all **1,645 PDF outline entries** and jump to any bookmark in this one continuous book.
+- Browse all **1,680 PDF outline entries** and jump to any bookmark in this one continuous book.
 - Scrub through the manuscript with the always-visible progress bar, or click the page count to enter a page number. Changing pages preserves a manually chosen view.
 - Open the high-resolution reading inspector for mathematical notation; enlarge, navigate, and close without leaving the simulation.
 - Share a specific location using a deep link, such as `#p=947`.
@@ -39,7 +39,7 @@ Copy-Item E:\\INM-TeX\\inm.pdf public\\inm.pdf
 npm run build
 ```
 
-The first view uses compact WebP previews while one complete, versioned 16.4 MB PDF downloads in the background. The PDF is saved in browser Cache Storage and reused on later visits. Once it is ready, uncached 3D pages render locally from that same document, so page navigation no longer requires separate image transfers. Only current and nearby pages are rasterized; a serial render queue prioritizes visible pages over speculative work. The full-resolution reader shares this document. Uploaded PDFs replace the reading source safely, including while the background download is still pending.
+The first view uses compact WebP previews while one complete, versioned PDF downloads in the background. The PDF is saved in browser Cache Storage and reused on later visits. Once it is ready, uncached 3D pages render locally from that same document, so page navigation no longer requires separate image transfers. Only current and nearby pages are rasterized; a serial render queue prioritizes visible pages over speculative work. The full-resolution reader shares this document. Uploaded PDFs replace the reading source safely, including while the background download is still pending.
 
 Page turns keep a fixed camera and fixed sheet textures throughout the animation; loaded images commit after landing. Visible textures are protected from eviction and separated depth offsets keep the flying leaf above stationary paper. The preview packs remain an immediate first-view and network-failure fallback; regenerate them and the bundled index whenever the source PDF changes.
 
@@ -49,7 +49,7 @@ The Vite static build is copied to `docs/`, with GitHub Pages configured for `ma
 
 Resting sheets and turning sheets share an arc-length cross-section. The resting solver derives projected span from paper length and the local support curve; a turning sheet interpolates tangent angles and integrates segment lengths. The stationary stacks transition between their two curved poses during the turn, including their head/tail cuts and hollow fore-edge. Sampled lift-off and landing shapes match their corresponding resting surfaces, and forward/backward turns use the same reversible path.
 
-The book-block thickness is `ceil(pages/2) × paper caliper` approximately; the visual model estimates cover board and overhang independently. Its default caliper is 0.10 mm, resulting in a 62.4 mm book block for 1,248 printed pages. Exact manufacturing requirements depend on actual stock, grain, swell, imposition, and binding. The simulation is a visual proof, not a printer-supplied cover template.
+The book-block thickness is `ceil(pages/2) × paper caliper` approximately; the visual model estimates cover board and overhang independently. Its default caliper is 0.10 mm, resulting in a 65.4 mm book block for 1,308 printed pages. Exact manufacturing requirements depend on actual stock, grain, swell, imposition, and binding. The simulation is a visual proof, not a printer-supplied cover template.
 
 The binding model has **one continuous, compact case spine** that does not unfold with the leaves. Two independent cover-board hinges move the covers, while the text-block leaves fan out into a rounded gutter. Paper edges have dynamically shaped, finely layered surfaces at the head, tail and fore edge, and the cloth has a small deterministic woven bump texture. Opening the book changes both geometry and the whole book's viewing orientation; page count controls the actual visual left/right stack balance. This is an illustrative mechanical mockup, not a validated bindery model or a photorealistic scan. Actual bending depends on paper grain, signature sewing, rounding/backing, adhesive and casing. To keep rendering responsive, only active PDF pages and the turning leaf use page textures; the rest of the book is represented by aggregated signature masses and fine laminated cut surfaces.
 

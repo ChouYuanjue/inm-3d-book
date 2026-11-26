@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta name="theme-color" content="#eeebe5"/>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg"/>
-  <meta name="description" content="An interactive, print-aware three-dimensional preview of Informal Notes on Mathematics by Runnel Zhang. Turn pages of the actual 1,248-page book."/>
+  <meta name="description" content="An interactive, print-aware three-dimensional preview of Informal Notes on Mathematics by Runnel Zhang. Turn pages of the actual 1,308-page book."/>
   <title>INM — The Physical Book</title>
-  <script type="module" crossorigin src="/inm-3d-book/assets/main-DC4sHF3S.js"></script>
+  <script type="module" crossorigin src="/inm-3d-book/assets/main-DTod7mnn.js"></script>
   <link rel="stylesheet" crossorigin href="/inm-3d-book/assets/main-ByzU9HT5.css">
 </head>
 <body>
@@ -32,9 +32,9 @@
         <div class="sidebar-content">
 
           <div class="section-heading"><span>PRINT</span><span class="fine-divider"></span></div>
-          <div class="field-row"><label for="pageCount">Total printed pages</label><span class="hint-label" id="sourcePagesLabel">Source: 1,248</span></div>
-          <div class="numeric-row"><input id="pageCount" type="number" min="2" max="4000" step="2" value="1248"/><span class="unit">pages</span><button type="button" id="restorePageCount" class="small-link">Reset</button></div>
-          <input id="pagesRange" class="range-control" aria-label="Number of pages" type="range" min="100" max="2000" step="2" value="1248"/>
+          <div class="field-row"><label for="pageCount">Total printed pages</label><span class="hint-label" id="sourcePagesLabel">Source: 1,308</span></div>
+          <div class="numeric-row"><input id="pageCount" type="number" min="2" max="4000" step="2" value="1308"/><span class="unit">pages</span><button type="button" id="restorePageCount" class="small-link">Reset</button></div>
+          <input id="pagesRange" class="range-control" aria-label="Number of pages" type="range" min="100" max="2000" step="2" value="1308"/>
           <div class="range-labels"><span>100</span><span>2,000</span></div>
           <div class="field"><label for="format">Trim size</label><select id="format"><option value="a4">A4 · 210 × 297 mm</option><option value="b5">B5 · 176 × 250 mm</option><option value="a5">A5 · 148 × 210 mm</option><option value="royal">Royal · 170 × 240 mm</option><option value="sixnine">6 × 9 in · 152 × 229 mm</option></select></div>
           <div class="two-fields">
@@ -46,7 +46,7 @@
             <input id="openingAngle" class="range-control" type="range" min="90" max="145" step="1" value="120" aria-label="Open book angle in degrees"/>
           </div>
           <div class="metric-panel">
-            <div><span class="metric-kicker">ESTIMATED BOOK BLOCK</span><div class="big-metric"><span id="coreThickness">62.4</span><small>mm</small></div></div>
+            <div><span class="metric-kicker">ESTIMATED BOOK BLOCK</span><div class="big-metric"><span id="coreThickness">65.4</span><small>mm</small></div></div>
             <div class="metric-right"><span class="metric-kicker">PAPER SHEETS</span><strong id="sheetCount">624</strong><span class="metric-kicker" id="physicalDimensions">210 × 297 mm</span><span class="metric-kicker" id="signatureCount">39 signatures</span></div>
           </div>
           <div class="section-heading"><span>COVER</span><span class="fine-divider"></span></div>
@@ -59,7 +59,7 @@
             <button type="button" id="resetCover" class="small-link">Restore design</button>
           </div>
           <div class="section-heading"><span>MANUSCRIPT</span><span class="fine-divider"></span></div>
-          <div class="upload-row pdf-row"><label class="upload-btn" for="pdfUpload">↑ <span>Load another PDF</span></label><input id="pdfUpload" type="file" accept="application/pdf" hidden/><span id="pdfState" class="pdf-state">1,248-page source</span></div>
+          <div class="upload-row pdf-row"><label class="upload-btn" for="pdfUpload">↑ <span>Load another PDF</span></label><input id="pdfUpload" type="file" accept="application/pdf" hidden/><span id="pdfState" class="pdf-state">1,308-page source</span></div>
           <div class="section-heading"><span>CONTENTS</span><span class="fine-divider"></span></div>
           <label class="visually-hidden" for="sectionSearch">Search manuscript section titles</label>
           <input class="section-search" id="sectionSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Search chapters, notes, concepts…" />
@@ -70,28 +70,28 @@
       <main class="main-view">
         <div class="scene-wrap" id="sceneWrap">
           <div class="scene-backdrop" aria-hidden="true"></div>
-          <div class="scene-upper-left"><strong id="sceneTitle">Informal Notes on Mathematics</strong><span id="sceneMeta">A4 / HARDCOVER / 1,248 PAGES</span></div>
+          <div class="scene-upper-left"><strong id="sceneTitle">Informal Notes on Mathematics</strong><span id="sceneMeta">A4 / HARDCOVER / 1,308 PAGES</span></div>
 
           <div id="canvasHost" aria-label="Interactive 3D model of a hardcover book"></div>
           <div class="scene-drag-note"><span class="orbit-icon">◎</span> ROTATE <span class="small-sep">/</span> ZOOM</div>
           <div class="reader-navigation" id="readerNavigation" hidden>
             <span class="reader-nav-caption">PAGE</span>
 
-            <input type="number" id="readerPageInput" class="reader-page-input" aria-label="Page number" min="1" max="1248" value="1" step="1" />
+            <input type="number" id="readerPageInput" class="reader-page-input" aria-label="Page number" min="1" max="1308" value="1" step="1" />
             <button id="readerGo" class="reader-nav-go" type="button">GO</button>
             <button id="inspectorOpen" class="reader-inspect-btn" type="button">↗ <span>READ PDF</span></button>
           </div>
           <div class="reader-controls">
-            <div class="reader-progress"><input type="range" id="readerPosition" class="reader-position" aria-label="Jump through the manuscript" min="1" max="1248" value="1" step="1" /></div>
+            <div class="reader-progress"><input type="range" id="readerPosition" class="reader-position" aria-label="Jump through the manuscript" min="1" max="1308" value="1" step="1" /></div>
             <button id="prevPage" class="arrow-btn" aria-label="Turn backward" type="button">←</button>
             <button id="openBook" class="primary-reader-btn" type="button">Open <span>↗</span></button>
             <button id="nextPage" class="arrow-btn" aria-label="Turn forward" type="button">→</button>
-            <button class="reader-counter" id="togglePageJump" type="button" aria-controls="readerNavigation" aria-expanded="false" title="Jump to page"><span class="counter-label" id="counterLabel">CLOSED VOLUME</span><strong id="pageIndicator">1 / 1,248</strong></button>
+            <button class="reader-counter" id="togglePageJump" type="button" aria-controls="readerNavigation" aria-expanded="false" title="Jump to page"><span class="counter-label" id="counterLabel">CLOSED VOLUME</span><strong id="pageIndicator">1 / 1,308</strong></button>
           </div>
           <div class="loading-msg" id="loadingMsg" role="status" aria-live="polite"></div>
 
         </div>
-        <div class="main-footer"><span id="scaleDetails">A4 · 210 × 297 mm · 62.4 mm book block</span></div>
+        <div class="main-footer"><span id="scaleDetails">A4 · 210 × 297 mm · 65.4 mm book block</span></div>
       </main>
     </div>
   </div>
@@ -106,8 +106,8 @@
       <div class="inspector-footer">
         <button type="button" id="inspectorPrev" class="inspector-turn" aria-label="Previous PDF page">←</button>
         <label for="inspectorPage">PAGE</label>
-        <input id="inspectorPage" type="number" min="1" max="1248" value="1"/>
-        <span id="inspectorTotal">/ 1,248</span>
+        <input id="inspectorPage" type="number" min="1" max="1308" value="1"/>
+        <span id="inspectorTotal">/ 1,308</span>
         <button type="button" id="inspectorNext" class="inspector-turn" aria-label="Next PDF page">→</button>
         <div class="inspector-zoom"><button type="button" id="inspectorZoomOut" aria-label="Zoom out">−</button><span id="inspectorZoomLabel">100%</span><button type="button" id="inspectorZoomIn" aria-label="Zoom in">+</button></div>
       </div>

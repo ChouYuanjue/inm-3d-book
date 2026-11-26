@@ -1,5 +1,5 @@
 // Searchable index derived from the compiled PDF's own bookmark outline.
-export function initBookOutline({baseUrl, onJump}) {
+export function initBookOutline({baseUrl, onJump, revision}) {
   const input=document.getElementById('sectionSearch');
   const results=document.getElementById('sectionResults');
   const count=document.getElementById('outlineCount');
@@ -59,7 +59,7 @@ export function initBookOutline({baseUrl, onJump}) {
     debounce=window.setTimeout(render,90);
   });
   count.textContent='Loading manuscript outline…';
-  fetch(baseUrl+'outline.json').then(r=>{
+  fetch(baseUrl+'outline.json'+(revision?'?edition='+encodeURIComponent(revision):'')).then(r=>{
     if(!r.ok)throw new Error('Could not fetch outline');
     return r.json();
   }).then(data=>{

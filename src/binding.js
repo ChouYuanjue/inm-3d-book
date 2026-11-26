@@ -396,7 +396,7 @@ export function updateSpineShell(outer,inner,rims,thickness){
 }
 
 export class HardcoverMechanics{
-  constructor({root,materials,dimensions,sourcePages=1248,printPages=sourcePages}){
+  constructor({root,materials,dimensions,sourcePages=1308,printPages=sourcePages}){
     this.root=root;this.materials=materials;this.dimensions=dimensions;
     this.sourcePages=sourcePages;this.printPages=printPages;
     this.owned=[];

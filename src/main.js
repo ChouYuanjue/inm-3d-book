@@ -29,7 +29,7 @@ const FORMATS = {
   a4:[210,297], b5:[176,250], a5:[148,210],
   royal:[170,240], sixnine:[152,229]
 };
-const SOURCE_PAGES=1248;
+const SOURCE_PAGES=pagePreviewIndex.count;
 const state={
   pages:SOURCE_PAGES, sourcePages:SOURCE_PAGES, caliper:.10,
   format:'a4', binding:'hardcover', openAngle:120,
@@ -855,7 +855,7 @@ inspector=createPageInspector({
   getPageCount:()=>state.sourcePages,
   onNavigate:navigateToPage
 });
-initBookOutline({baseUrl:import.meta.env.BASE_URL,onJump:navigateToPage});
+initBookOutline({baseUrl:import.meta.env.BASE_URL,onJump:navigateToPage,revision:pagePreviewIndex.source});
 updateStats();
 requestAnimationFrame(animate);
 $('pdfState').textContent=mmWord(state.sourcePages)+'-page source';
